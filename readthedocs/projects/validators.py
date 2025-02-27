@@ -6,19 +6,23 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
+from django.db.models import Sum
+from django.db.models.functions import Length
 from django.utils.deconstruct import deconstructible
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from readthedocs.projects.constants import LANGUAGES
 
+MAX_SIZE_ENV_VARS_PER_PROJECT = 256000
+
 
 @deconstructible
 class DomainNameValidator(RegexValidator):
-    message = _('Enter a valid plain or internationalized domain name value')
+    message = _("Enter a valid plain or internationalized domain name value")
     # Based on the domain name pattern from https://api.cloudflare.com/#zone-list-zones.
     regex = re.compile(
-        r'^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z0-9-]{2,20}$'
+        r"^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z0-9-]{2,20}$"
     )
 
 
@@ -37,16 +41,15 @@ validate_no_ip = NoIPValidator()
 
 @deconstructible
 class RepositoryURLValidator:
-
     disallow_relative_url = True
 
     # Pattern for ``git@github.com:user/repo`` pattern
-    re_git_user = re.compile(r'^[\w]+@.+')
+    re_git_user = re.compile(r"^[\w]+@.+")
 
     def __call__(self, value):
-        public_schemes = ['https', 'http', 'git', 'ftps', 'ftp']
-        private_schemes = ['ssh', 'ssh+git']
-        local_schemes = ['file']
+        public_schemes = ["https", "http", "git", "ftps", "ftp"]
+        private_schemes = ["ssh", "ssh+git"]
+        local_schemes = ["file"]
         valid_schemes = public_schemes
         if settings.ALLOW_PRIVATE_REPOS:
             valid_schemes += private_schemes
@@ -55,18 +58,18 @@ class RepositoryURLValidator:
         url = urlparse(value)
 
         # Malicious characters go first
-        if '&&' in value or '|' in value:
-            raise ValidationError(_('Invalid character in the URL'))
+        if "&&" in value or "|" in value:
+            raise ValidationError(_("Invalid character in the URL"))
         if url.scheme in valid_schemes:
             return value
 
         # Repo URL is not a supported scheme at this point, but there are
         # several cases where we might support it
         # Launchpad
-        if value.startswith('lp:'):
+        if value.startswith("lp:"):
             return value
         # Relative paths are conditionally supported
-        if value.startswith('.') and not self.disallow_relative_url:
+        if value.startswith(".") and not self.disallow_relative_url:
             return value
         # SSH cloning and ``git@github.com:user/project.git``
         if self.re_git_user.search(value) or url.scheme in private_schemes:
@@ -74,33 +77,13 @@ class RepositoryURLValidator:
                 return value
 
             # Throw a more helpful error message
-            raise ValidationError('Manual cloning via SSH is not supported')
+            raise ValidationError("Manual cloning via SSH is not supported")
 
         # No more valid URLs without supported URL schemes
-        raise ValidationError(_('Invalid scheme for URL'))
-
-
-class SubmoduleURLValidator(RepositoryURLValidator):
-
-    """
-    A URL validator for repository submodules.
-
-    If a repository has a relative submodule, the URL path is effectively the
-    supermodule's remote ``origin`` URL with the relative path applied.
-
-    From the git docs::
-
-        ``<repository>`` is the URL of the new submodule's origin repository.
-        This may be either an absolute URL, or (if it begins with ``./`` or
-        ``../``), the location relative to the superproject's default remote
-        repository
-    """
-
-    disallow_relative_url = False
+        raise ValidationError(_("Invalid scheme for URL"))
 
 
 validate_repository_url = RepositoryURLValidator()
-validate_submodule_url = SubmoduleURLValidator()
 
 
 def validate_build_config_file(path):
@@ -135,11 +118,12 @@ def validate_build_config_file(path):
         )
     if any(ch in path for ch in invalid_characters):
         raise ValidationError(
-            mark_safe(
+            format_html(
                 _(
                     "Found invalid character. Avoid these characters: "
                     "<code>{invalid_characters}</code>"
-                ).format(invalid_characters=invalid_characters),
+                ),
+                invalid_characters=invalid_characters,
             ),
             code="path_invalid",
         )
@@ -149,19 +133,17 @@ def validate_build_config_file(path):
     )
     if not is_valid and len(valid_filenames) == 1:
         raise ValidationError(
-            mark_safe(
-                _("The only allowed filename is <code>{filename}</code>.").format(
-                    filename=valid_filenames[0]
-                ),
+            format_html(
+                _("The only allowed filename is <code>{filename}</code>."),
+                filename=valid_filenames[0],
             ),
             code="path_invalid",
         )
     if not is_valid:
         raise ValidationError(
-            mark_safe(
-                _("The only allowed filenames are <code>{filenames}</code>.").format(
-                    filenames=", ".join(valid_filenames)
-                ),
+            format_html(
+                _("The only allowed filenames are <code>{filenames}</code>."),
+                filenames=", ".join(valid_filenames),
             ),
             code="path_invalid",
         )
@@ -221,9 +203,8 @@ def validate_custom_subproject_prefix(project, prefix):
     # If the custom project prefix and subproject prefix overlap,
     # we need to check that the first non-overlapping component isn't a valid language.
     # Since this will result in an ambiguous path that can't be resolved as a subproject.
-    # This check is only needed if the project is a multiversion project,
-    # a single version project will resolve the subproject correctly.
-    if not project.single_version and prefix.startswith(project_prefix):
+    # This check is only needed if the project supports translations.
+    if project.supports_translations and prefix.startswith(project_prefix):
         first_component = prefix.removeprefix(project_prefix).split("/")[0]
         valid_languages = [language[0] for language in LANGUAGES]
         if first_component in valid_languages:
@@ -250,3 +231,20 @@ def _clean_prefix(prefix):
     if not prefix:
         return "/"
     return f"/{prefix}/"
+
+
+def validate_environment_variable_size(
+    project, new_env_value, error_class=ValidationError
+):
+    existing_size = (
+        project.environmentvariable_set.annotate(size=Length("value")).aggregate(
+            total_size=Sum("size")
+        )["total_size"]
+        or 0
+    )
+    if existing_size + len(new_env_value) > MAX_SIZE_ENV_VARS_PER_PROJECT:
+        raise error_class(
+            _(
+                "The total size of all environment variables in the project cannot exceed 256 KB."
+            )
+        )

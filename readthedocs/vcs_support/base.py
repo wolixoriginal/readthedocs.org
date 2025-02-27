@@ -27,12 +27,13 @@ class VCSVersion:
         self.verbose_name = verbose_name
 
     def __repr__(self):
-        return '<VCSVersion: {}:{}'.format(
+        return "<VCSVersion: {}:{}".format(
             self.repository.repo_url,
             self.verbose_name,
         )
 
 
+# TODO: merge this class with Git VCS class to simplify the code.
 class BaseVCS:
 
     """
@@ -40,13 +41,6 @@ class BaseVCS:
 
     VCS commands are executed inside a ``BaseBuildEnvironment`` subclass.
     """
-
-    supports_tags = False  # Whether this VCS supports tags or not.
-    supports_branches = False  # Whether this VCS supports branches or not.
-    supports_submodules = False
-
-    # Whether this VCS supports listing remotes (branches, tags) without cloning
-    supports_lsremote = False
 
     # =========================================================================
     # General methods
@@ -93,31 +87,29 @@ class BaseVCS:
         self.check_working_dir()
 
     def run(self, *cmd, **kwargs):
-        kwargs.update({
-            'cwd': self.working_dir,
-            'shell': False,
-        })
+        kwargs.update(
+            {
+                "cwd": self.working_dir,
+                "shell": False,
+            }
+        )
 
         try:
             build_cmd = self.environment.run(*cmd, **kwargs)
-        except BuildCancelled:
+        except BuildCancelled as exc:
             # Catch ``BuildCancelled`` here and re raise it. Otherwise, if we
             # raise a ``RepositoryError`` then the ``on_failure`` method from
             # Celery won't treat this problem as a ``BuildCancelled`` issue.
-            raise BuildCancelled
-        except BuildUserError as e:
+            raise BuildCancelled(message_id=BuildCancelled.CANCELLED_BY_USER) from exc
+        except BuildUserError as exc:
             # Re raise as RepositoryError to handle it properly from outside
-            if hasattr(e, "message"):
-                raise RepositoryError(e.message)
-            raise RepositoryError
+            raise RepositoryError(message_id=RepositoryError.GENERIC) from exc
 
         # Return a tuple to keep compatibility
         return (build_cmd.exit_code, build_cmd.output, build_cmd.error)
 
     # =========================================================================
     # Tag / Branch related methods
-    # These methods only apply if supports_tags = True and/or
-    # support_branches = True
     # =========================================================================
 
     @property
@@ -160,7 +152,4 @@ class BaseVCS:
 
         :type config: readthedocs.config.BuildConfigBase
         """
-        raise NotImplementedError
-
-    def repo_exists(self):
         raise NotImplementedError

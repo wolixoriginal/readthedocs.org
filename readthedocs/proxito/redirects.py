@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 import structlog
 from django.http import HttpResponseRedirect
 
-from readthedocs.core.resolver import resolver
+from readthedocs.core.resolver import Resolver
 from readthedocs.core.utils.url import unsafe_join_url_path
 from readthedocs.proxito.cache import cache_response
 from readthedocs.proxito.constants import RedirectType
@@ -62,7 +62,7 @@ def canonical_redirect(request, project, redirect_type, external_version_slug=No
     elif redirect_type == RedirectType.subproject_to_main_domain:
         # We need to get the subproject root in the domain of the main
         # project, and append the current path.
-        project_doc_prefix = resolver.get_subproject_url_prefix(
+        project_doc_prefix = Resolver().get_subproject_url_prefix(
             project=project,
             external_version_slug=external_version_slug,
         )
@@ -76,13 +76,13 @@ def canonical_redirect(request, project, redirect_type, external_version_slug=No
 
     if from_url == to:
         # check that we do have a response and avoid infinite redirect
-        log.warning(
+        log.debug(
             "Infinite Redirect: FROM URL is the same than TO URL.",
             url=to,
         )
         raise InfiniteRedirectException()
 
-    log.info(
+    log.debug(
         "Canonical Redirect.", host=request.get_host(), from_url=from_url, to_url=to
     )
     resp = HttpResponseRedirect(to)

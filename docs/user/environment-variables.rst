@@ -1,7 +1,7 @@
 .. _Environment Variables:
 
-Understanding environment variables
-===================================
+Environment variable overview
+=============================
 
 Read the Docs allows you to define your own environment variables to be used in the build process.
 It also defines a set of :doc:`default environment variables </reference/environment-variables>` with information about your build.
@@ -58,6 +58,12 @@ Pull Request builds
 .. the presence of this section is intended to evolve into a better explanation
 .. with a few more scenarios,
 .. once there is better options for environment variables in config files
+
+Limitations
+-----------
+
+- Individual environment variables are limited to 48 KB in size.
+- The total size of all environment variables in a project is limited to 256 KB.
 
 Patterns of using environment variables
 ---------------------------------------
@@ -129,7 +135,7 @@ The following example shows how a non-secret single-purpose environment variable
    build:
      os: "ubuntu-22.04"
      tools:
-       python: "3.11"
+       python: "3.12"
      jobs:
        post_build:
          - EXAMPLE_ENVIRONMENT_VARIABLE=foobar command --flag

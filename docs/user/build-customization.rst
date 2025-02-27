@@ -4,21 +4,21 @@ Build process customization
 Read the Docs has a :doc:`well-defined build process </builds>` that works for many projects.
 We also allow customization of builds in two ways:
 
-`Extend the build process`_
-    Keep using the default build process,
-    adding your own commands.
+Customize our standard build process
+   Keep using the default commands for MkDocs or Sphinx,
+   but extend or override the ones you need.
 
-`Override the build process`_
-    This option gives you *full control* over your build.
-    Read the Docs supports any tool that generates HTML.
+Define a build process from scratch
+   This option gives you *full control* over your build.
+   Read the Docs supports any tool that generates HTML.
 
-Extend the build process
-------------------------
+Extend or override the build process
+------------------------------------
 
-In the normal build process,
-the pre-defined jobs ``checkout``, ``system_dependencies``, ``create_environment``, ``install``, ``build`` and ``upload`` are executed.
-Read the Docs also exposes these jobs,
-which allows you to customize the build process by adding shell commands.
+In the normal build process, the pre-defined jobs ``checkout``, ``system_dependencies``,  and ``upload`` are executed.
+If you define a :ref:`config-file/v2:sphinx` or :ref:`config-file/v2:mkdocs` configuration,
+the ``create_environment``, ``install``, and ``build`` jobs will use the default commands for the selected tool.
+If no tool configuration is specified, these jobs won't execute anything by default.
 
 The jobs where users can customize our default build process are:
 
@@ -33,26 +33,32 @@ The jobs where users can customize our default build process are:
    * - System dependencies
      - ``pre_system_dependencies``, ``post_system_dependencies``
    * - Create environment
-     - ``pre_create_environment``, ``post_create_environment``
+     - ``pre_create_environment``, ``create_environment``, ``post_create_environment``
    * - Install
-     - ``pre_install``, ``post_install``
+     - ``pre_install``, ``install``, ``post_install``
    * - Build
-     - ``pre_build``, ``post_build``
+     - ``pre_build``, ``build``, ``post_build``
    * - Upload
      - No customizable jobs currently
 
 .. note::
 
-   The pre-defined jobs (``checkout``, ``system_dependencies``, etc) cannot be overridden or skipped.
-   You can fully customize things in :ref:`build-customization:override the build process`.
+   Any other pre-defined jobs (``checkout``, ``system_dependencies``, ``upload``) cannot be overridden or skipped.
 
-These jobs are defined using the :doc:`/config-file/v2` with the :ref:`config-file/v2:build.jobs` key.
-This example configuration defines commands to be executed *before* installing and *after* the build has finished:
+These jobs are defined using the :doc:`configuration file </config-file/v2>` with the :ref:`config-file/v2:build.jobs` key.
+This example configuration defines commands to be executed *before* installing and *after* the build has finished,
+and also overrides the default build command for the ``htmlzip`` format, while keeping the default commands for the ``html`` and ``pdf`` formats:
 
 .. code-block:: yaml
    :caption: .readthedocs.yaml
 
    version: 2
+   formats: [htmlzip, pdf]
+   sphinx:
+      configuration: docs/conf.py
+   python:
+      install:
+        - requirements: docs/requirements.txt
    build:
      os: "ubuntu-22.04"
      tools:
@@ -60,308 +66,36 @@ This example configuration defines commands to be executed *before* installing a
      jobs:
        pre_install:
          - bash ./scripts/pre_install.sh
+       build:
+         # The default commands for generating the HTML and pdf formats will still run.
+         htmlzip:
+           - echo "Override default build command for htmlzip format"
+           - mkdir -p $READTHEDOCS_OUTPUT/htmlzip/
+           - echo "Hello, world!" > $READTHEDOCS_OUTPUT/htmlzip/index.zip
        post_build:
          - curl -X POST \
            -F "project=${READTHEDOCS_PROJECT}" \
            -F "version=${READTHEDOCS_VERSION}" https://example.com/webhooks/readthedocs/
 
+Features and limitations
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-User-defined job limitations
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-* The current working directory is at the root of your project's cloned repository
-* Environment variables are expanded for each individual command (see :doc:`/reference/environment-variables`)
-* Each command is executed in a new shell process, so modifications done to the shell environment do not persist between commands
+* The current working directory is at the root of your project's cloned repository.
+* Environment variables are expanded for each individual command (see :doc:`/reference/environment-variables`).
+* Each command is executed in a new shell process, so modifications done to the shell environment do not persist between commands.
 * Any command returning non-zero exit code will cause the build to fail immediately
-  (note there is a special exit code to `cancel the build <cancel-build-based-on-a-condition>`_)
-* ``build.os`` and ``build.tools`` are required when using ``build.jobs``
-
-
-``build.jobs`` examples
-~~~~~~~~~~~~~~~~~~~~~~~
-
-We've included some common examples where using :ref:`config-file/v2:build.jobs` will be useful.
-These examples may require some adaptation for each projects' use case,
-we recommend you use them as a starting point.
-
-
-Unshallow git clone
-^^^^^^^^^^^^^^^^^^^
-
-Read the Docs does not perform a full clone on ``checkout`` job to reduce network data and speed up the build process.
-Because of this, extensions that depend on the full Git history will fail.
-To avoid this, it's possible to unshallow the :program:`git clone`:
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-20.04"
-     tools:
-       python: "3.10"
-     jobs:
-       post_checkout:
-         - git fetch --unshallow
-
-
-Cancel build based on a condition
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-When a command exits with code ``183``,
-Read the Docs will cancel the build immediately.
-You can use this approach to cancel builds that you don't want to complete based on some conditional logic.
-
-.. note:: Why 183 was chosen for the exit code?
-
-   It's the word "skip" encoded in ASCII.
-   Then it's taken the 256 modulo of it because
-   `the Unix implementation does this automatically <https://tldp.org/LDP/abs/html/exitcodes.html>`_
-   for exit codes greater than 255.
-
-   .. code-block:: pycon
-
-      >>> sum(list("skip".encode("ascii")))
-      439
-      >>> 439 % 256
-      183
-
-
-Here is an example that cancels builds from pull requests when there are no changes to the ``docs/`` folder compared to the ``origin/main`` branch:
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-22.04"
-     tools:
-       python: "3.11"
-     jobs:
-       post_checkout:
-         # Cancel building pull requests when there aren't changed in the docs directory or YAML file.
-         # You can add any other files or directories that you'd like here as well,
-         # like your docs requirements file, or other files that will change your docs build.
-         #
-         # If there are no changes (git diff exits with 0) we force the command to return with 183.
-         # This is a special exit code on Read the Docs that will cancel the build immediately.
-         - |
-           if [ "$READTHEDOCS_VERSION_TYPE" = "external" ] && git diff --quiet origin/main -- docs/ .readthedocs.yaml;
-           then
-             exit 183;
-           fi
-
-
-This other example shows how to cancel a build if the commit message contains ``skip ci`` on it:
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-22.04"
-     tools:
-       python: "3.11"
-     jobs:
-       post_checkout:
-         # Use `git log` to check if the latest commit contains "skip ci",
-         # in that case exit the command with 183 to cancel the build
-         - (git --no-pager log --pretty="tformat:%s -- %b" -1 | grep -viq "skip ci") || exit 183
-
-
-Generate documentation from annotated sources with Doxygen
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-It's possible to run Doxygen as part of the build process to generate documentation from annotated sources:
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-20.04"
-     tools:
-       python: "3.10"
-     jobs:
-       pre_build:
-       # Note that this HTML won't be automatically uploaded,
-       # unless your documentation build includes it somehow.
-         - doxygen
-
-
-Use MkDocs extensions with extra required steps
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-There are some MkDocs extensions that require specific commands to be run to generate extra pages before performing the build.
-For example, `pydoc-markdown <http://niklasrosenstein.github.io/pydoc-markdown/>`_
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-20.04"
-     tools:
-       python: "3.10"
-     jobs:
-       pre_build:
-         - pydoc-markdown --build --site-dir "$PWD/_build/html"
-
-
-Avoid having a dirty Git index
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Read the Docs needs to modify some files before performing the build to be able to integrate with some of its features.
-Because of this reason, it could happen the Git index gets dirty (it will detect modified files).
-In case this happens and the project is using any kind of extension that generates a version based on Git metadata (like `setuptools_scm <https://github.com/pypa/setuptools_scm/>`_),
-this could cause an invalid version number to be generated.
-In that case, the Git index can be updated to ignore the files that Read the Docs has modified.
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-20.04"
-     tools:
-       python: "3.10"
-     jobs:
-       pre_install:
-         - git update-index --assume-unchanged environment.yml docs/conf.py
-
-
-Perform a check for broken links
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Sphinx comes with a `linkcheck <https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder>`_ builder that checks for broken external links included in the project's documentation.
-This helps ensure that all external links are still valid and readers aren't linked to non-existent pages.
-
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-20.04"
-     tools:
-       python: "3.10"
-     jobs:
-       pre_build:
-         - python -m sphinx -b linkcheck -D linkcheck_timeout=1 docs/ _build/linkcheck
-
-
-Support Git LFS (Large File Storage)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-In case the repository contains large files that are tracked with Git LFS,
-there are some extra steps required to be able to download their content.
-It's possible to use ``post_checkout`` user-defined job for this.
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-20.04"
-     tools:
-       python: "3.10"
-     jobs:
-       post_checkout:
-         # Download and uncompress the binary
-         # https://git-lfs.github.com/
-         - wget https://github.com/git-lfs/git-lfs/releases/download/v3.1.4/git-lfs-linux-amd64-v3.1.4.tar.gz
-         - tar xvfz git-lfs-linux-amd64-v3.1.4.tar.gz
-         # Modify LFS config paths to point where git-lfs binary was downloaded
-         - git config filter.lfs.process "`pwd`/git-lfs filter-process"
-         - git config filter.lfs.smudge  "`pwd`/git-lfs smudge -- %f"
-         - git config filter.lfs.clean "`pwd`/git-lfs clean -- %f"
-         # Make LFS available in current repository
-         - ./git-lfs install
-         # Download content from remote
-         - ./git-lfs fetch
-         # Make local files to have the real content on them
-         - ./git-lfs checkout
-
-
-Install Node.js dependencies
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-It's possible to install Node.js together with the required dependencies by using :term:`user-defined build jobs`.
-To setup it, you need to define the version of Node.js to use and install the dependencies by using ``build.jobs.post_install``:
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-   build:
-     os: "ubuntu-22.04"
-     tools:
-       python: "3.9"
-       nodejs: "16"
-     jobs:
-       post_install:
-         # Install dependencies defined in your ``package.json``
-         - npm ci
-         # Install any other extra dependencies to build the docs
-         - npm install -g jsdoc
-
-
-Install dependencies with Poetry
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Projects managed with `Poetry <https://python-poetry.org/>`__,
-can use the ``post_create_environment`` user-defined job to use Poetry for installing Python dependencies.
-Take a look at the following example:
-
-
-.. code-block:: yaml
-   :caption: .readthedocs.yaml
-
-   version: 2
-
-   build:
-     os: "ubuntu-22.04"
-     tools:
-       python: "3.10"
-     jobs:
-       post_create_environment:
-         # Install poetry
-         # https://python-poetry.org/docs/#installing-manually
-         - pip install poetry
-         # Tell poetry to not use a virtual environment
-         - poetry config virtualenvs.create false
-       post_install:
-         # Install dependencies with 'docs' dependency group
-         # https://python-poetry.org/docs/managing-dependencies/#dependency-groups
-         - poetry install --with docs
-
-   sphinx:
-     configuration: docs/conf.py
-
-
-.. _build_commands_introduction:
-
-Override the build process
---------------------------
-
-.. warning::
-
-   This feature is in *beta* and could change without warning.
-   It does not yet support some of the Read the Docs' features like the :term:`flyout menu`.
-   We do our best to not break existing configurations,
-   but use this feature at your own risk.
-
-If your project requires full control of the build process,
-and :ref:`extending the build process <build-customization:extend the build process>` is not enough,
-all the commands executed during builds can be overridden using the :ref:`config-file/v2:build.commands`.
-
-As Read the Docs does not have control over the build process,
-you are responsible for running all the commands required to install requirements and build your project.
+  (note there is a special exit code to `cancel the build <cancel-build-based-on-a-condition>`_).
+* ``build.os`` and ``build.tools`` are required when using ``build.jobs``.
+* If the :ref:`config-file/v2:sphinx` or :ref:`config-file/v2:mkdocs` configuration is defined,
+  the ``create_environment``, ``install``, and ``build`` jobs will use the default commands for the selected tool.
+* If neither of the :ref:`config-file/v2:sphinx` or :ref:`config-file/v2:mkdocs` configurations are defined,
+  the ``create_environment``, ``install``, and ``build`` jobs will default to run nothing,
+  giving you full control over the build process.
 
 Where to put files
 ~~~~~~~~~~~~~~~~~~
 
-It is your responsibility to generate HTML and other formats of your documentation using :ref:`config-file/v2:build.commands`.
+It is your responsibility to generate HTML and other formats of your documentation when overriding the steps from :ref:`config-file/v2:build.jobs.build`.
 The contents of the ``$READTHEDOCS_OUTPUT/<format>/`` directory will be hosted as part of your documentation.
 
 We store the the base folder name ``_readthedocs/`` in the environment variable ``$READTHEDOCS_OUTPUT`` and encourage that you use this to generate paths.
@@ -396,14 +130,384 @@ or by using the :doc:`/server-side-search/api`.
    In order for Read the Docs to index your HTML files correctly,
    they should follow the conventions described at :doc:`rtd-dev:search-integration`.
 
-``build.commands`` examples
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Alternative syntax
+~~~~~~~~~~~~~~~~~~
 
-This section contains examples that showcase what is possible with :ref:`config-file/v2:build.commands`.
-Note that you may need to modify and adapt these examples depending on your needs.
+Alternatively, you can use the :ref:`config-file/v2:build.commands` key to completely override the build process.
 
-Pelican
-^^^^^^^
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-22.04"
+     tools:
+       python: "3.10"
+     commands:
+       - pip install pelican
+       - pelican --settings docs/pelicanconf.py --output $READTHEDOCS_OUTPUT/html/ docs/
+
+But we recommend using :ref:`config-file/v2:build.jobs` instead:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-22.04"
+     tools:
+       python: "3.10"
+     jobs:
+       install:
+         - pip install pelican
+       build:
+         html:
+           - pelican --settings docs/pelicanconf.py --output $READTHEDOCS_OUTPUT/html/ docs/
+
+``build.jobs`` offers the same functionality as ``build.commands``,
+but in a more structured way that allows you to define different commands for each format,
+while also supporting installing system dependencies via ``build.apt_packages``.
+
+Examples
+--------
+
+We've included some common examples where using :ref:`config-file/v2:build.jobs` will be useful.
+These examples may require some adaptation for each projects' use case,
+we recommend you use them as a starting point.
+
+Unshallow git clone
+~~~~~~~~~~~~~~~~~~~
+
+Read the Docs does not perform a full clone in the ``checkout`` job in order to reduce network data and speed up the build process.
+Instead, it performs a `shallow clone <https://git-scm.com/docs/shallow>`_ and only fetches the branch or tag that you are building documentation for.
+Because of this, extensions that depend on the full Git history will fail.
+To avoid this, it's possible to unshallow the :program:`git clone`:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       post_checkout:
+         - git fetch --unshallow || true
+
+If your build also relies on the contents of other branches, it may also be necessary to re-configure git to fetch these:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       post_checkout:
+         - git fetch --unshallow || true
+         - git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' || true
+         - git fetch --all --tags || true
+
+
+Cancel build based on a condition
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When a command exits with code ``183``,
+Read the Docs will cancel the build immediately.
+You can use this approach to cancel builds that you don't want to complete based on some conditional logic.
+
+.. note:: Why 183 was chosen for the exit code?
+
+   It's the word "skip" encoded in ASCII.
+   Then it's taken the 256 modulo of it because
+   `the Unix implementation does this automatically <https://tldp.org/LDP/abs/html/exitcodes.html>`_
+   for exit codes greater than 255.
+
+   .. code-block:: pycon
+
+      >>> sum(list("skip".encode("ascii")))
+      439
+      >>> 439 % 256
+      183
+
+
+Here is an example that cancels builds from pull requests when there are no changes to the ``docs/`` folder compared to the ``origin/main`` branch:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-22.04"
+     tools:
+       python: "3.12"
+     jobs:
+       post_checkout:
+         # Cancel building pull requests when there aren't changed in the docs directory or YAML file.
+         # You can add any other files or directories that you'd like here as well,
+         # like your docs requirements file, or other files that will change your docs build.
+         #
+         # If there are no changes (git diff exits with 0) we force the command to return with 183.
+         # This is a special exit code on Read the Docs that will cancel the build immediately.
+         - |
+           if [ "$READTHEDOCS_VERSION_TYPE" = "external" ] && git diff --quiet origin/main -- docs/ .readthedocs.yaml;
+           then
+             exit 183;
+           fi
+
+
+This other example shows how to cancel a build if the commit message contains ``skip ci`` on it:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-22.04"
+     tools:
+       python: "3.12"
+     jobs:
+       post_checkout:
+         # Use `git log` to check if the latest commit contains "skip ci",
+         # in that case exit the command with 183 to cancel the build
+         - (git --no-pager log --pretty="tformat:%s -- %b" -1 | paste -s -d " " | grep -viq "skip ci") || exit 183
+
+
+Generate documentation from annotated sources with Doxygen
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+It's possible to run Doxygen as part of the build process to generate documentation from annotated sources:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       pre_build:
+       # Note that this HTML won't be automatically uploaded,
+       # unless your documentation build includes it somehow.
+         - doxygen
+
+
+Use MkDocs extensions with extra required steps
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There are some MkDocs extensions that require specific commands to be run to generate extra pages before performing the build.
+For example, `pydoc-markdown <http://niklasrosenstein.github.io/pydoc-markdown/>`_
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   mkdocs:
+     configuration: mkdocs.yml
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       pre_build:
+         - pydoc-markdown --build --site-dir "$READTHEDOCS_OUTPUT/html"
+
+
+Avoid having a dirty Git index
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Read the Docs needs to modify some files before performing the build to be able to integrate with some of its features.
+Because of this reason, it could happen the Git index gets dirty (it will detect modified files).
+In case this happens and the project is using any kind of extension that generates a version based on Git metadata (like `setuptools_scm <https://github.com/pypa/setuptools_scm/>`_),
+this could cause an invalid version number to be generated.
+In that case, the Git index can be updated to ignore the files that Read the Docs has modified.
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       pre_install:
+         - git update-index --assume-unchanged environment.yml docs/conf.py
+
+
+Perform a check for broken links
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Sphinx comes with a `linkcheck <https://www.sphinx-doc.org/en/master/usage/builders/index.html#sphinx.builders.linkcheck.CheckExternalLinksBuilder>`_ builder that checks for broken external links included in the project's documentation.
+This helps ensure that all external links are still valid and readers aren't linked to non-existent pages.
+
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       pre_build:
+         - python -m sphinx -b linkcheck -D linkcheck_timeout=1 docs/ $READTHEDOCS_OUTPUT/linkcheck
+
+
+Support Git LFS (Large File Storage)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In case the repository contains large files that are tracked with Git LFS,
+there are some extra steps required to be able to download their content.
+It's possible to use ``post_checkout`` user-defined job for this.
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-20.04"
+     tools:
+       python: "3.10"
+     jobs:
+       post_checkout:
+         # Download and uncompress the binary
+         # https://git-lfs.github.com/
+         - wget https://github.com/git-lfs/git-lfs/releases/download/v3.1.4/git-lfs-linux-amd64-v3.1.4.tar.gz
+         - tar xvfz git-lfs-linux-amd64-v3.1.4.tar.gz
+         # Modify LFS config paths to point where git-lfs binary was downloaded
+         - git config filter.lfs.process "`pwd`/git-lfs filter-process"
+         - git config filter.lfs.smudge  "`pwd`/git-lfs smudge -- %f"
+         - git config filter.lfs.clean "`pwd`/git-lfs clean -- %f"
+         # Make LFS available in current repository
+         - ./git-lfs install
+         # Download content from remote
+         - ./git-lfs fetch
+         # Make local files to have the real content on them
+         - ./git-lfs checkout
+
+
+Install Node.js dependencies
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+It's possible to install Node.js together with the required dependencies by using :term:`user-defined build jobs`.
+To setup it, you need to define the version of Node.js to use and install the dependencies by using ``build.jobs.post_install``:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-22.04"
+     tools:
+       python: "3.9"
+       nodejs: "16"
+     jobs:
+       post_install:
+         # Install dependencies defined in your ``package.json``
+         - npm ci
+         # Install any other extra dependencies to build the docs
+         - npm install -g jsdoc
+
+
+Install dependencies with Poetry
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Projects managed with `Poetry <https://python-poetry.org/>`__,
+can use the ``post_create_environment`` user-defined job to use Poetry for installing Python dependencies.
+Take a look at the following example:
+
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+
+   build:
+     os: "ubuntu-22.04"
+     tools:
+       python: "3.10"
+     jobs:
+       post_install:
+         # Install poetry
+         # https://python-poetry.org/docs/#installing-manually
+         - pip install poetry
+         # Install dependencies with 'docs' dependency group
+         # https://python-poetry.org/docs/managing-dependencies/#dependency-groups
+         # VIRTUAL_ENV needs to be set manually for now.
+         # See https://github.com/readthedocs/readthedocs.org/pull/11152/
+         - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH poetry install --with docs
+
+   sphinx:
+     configuration: docs/conf.py
+
+
+Install dependencies with ``uv``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Projects can use `uv <https://github.com/astral-sh/uv/>`__,
+to install Python dependencies, usually reducing the time taken to install compared to pip.
+Take a look at the following example:
+
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+
+   build:
+      os: ubuntu-24.04
+      tools:
+         python: "3.13"
+      jobs:
+         create_environment:
+            - asdf plugin add uv
+            - asdf install uv latest
+            - asdf global uv latest
+            - uv venv
+         install:
+            - uv pip install -r requirements.txt
+         build:
+            html:
+               - uv run sphinx-build -T -b html docs $READTHEDOCS_OUTPUT/html
+
+MkDocs projects could use ``NO_COLOR=1 uv run mkdocs build --strict --site-dir $READTHEDOCS_OUTPUT/html`` instead.
+
+Update Conda version
+~~~~~~~~~~~~~~~~~~~~
+
+Projects using Conda may need to install the latest available version of Conda.
+This can be done by using the ``pre_create_environment`` user-defined job to update Conda
+before creating the environment.
+Take a look at the following example:
+
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+    version: 2
+
+    build:
+      os: "ubuntu-22.04"
+      tools:
+        python: "miniconda3-4.7"
+      jobs:
+        pre_create_environment:
+          - conda update --yes --quiet --name=base --channel=defaults conda
+
+   sphinx:
+      configuration: docs/conf.py
+
+    conda:
+      environment: environment.yml
+
+Using Pelican
+~~~~~~~~~~~~~
 
 `Pelican <https://blog.getpelican.com/>`__ is a well-known static site generator that's commonly used for blogs and landing pages.
 If you are building your project with Pelican you could use a configuration file similar to the following:
@@ -416,13 +520,16 @@ If you are building your project with Pelican you could use a configuration file
      os: "ubuntu-22.04"
      tools:
        python: "3.10"
-     commands:
-       - pip install pelican[markdown]
-       - pelican --settings docs/pelicanconf.py --output _readthedocs/html/ docs/
+     jobs:
+       install:
+         - pip install pelican[markdown]
+       build:
+         html:
+           - pelican --settings docs/pelicanconf.py --output $READTHEDOCS_OUTPUT/html/ docs/
 
 
-Docsify
-^^^^^^^
+Using Docsify
+~~~~~~~~~~~~~
 
 `Docsify <https://docsify.js.org/>`__ generates documentation websites on the fly, without the need to build static HTML.
 These projects can be built using a configuration file like this:
@@ -433,8 +540,30 @@ These projects can be built using a configuration file like this:
    version: 2
    build:
      os: "ubuntu-22.04"
+     jobs:
+       build:
+         html:
+           - mkdir --parents $READTHEDOCS_OUTPUT/html/
+           - cp --recursive docs/* $READTHEDOCS_OUTPUT/html/
+
+Using Asciidoc
+~~~~~~~~~~~~~~
+
+`Asciidoctor <https://asciidoctor.org/>`__ is a fast processor for converting and generating documentation from AsciiDoc source.
+The Asciidoctor toolchain includes `Asciidoctor.js <https://docs.asciidoctor.org/asciidoctor.js/latest/>`__ which you can use with custom build commands.
+Here is an example configuration file:
+
+.. code-block:: yaml
+   :caption: .readthedocs.yaml
+
+   version: 2
+   build:
+     os: "ubuntu-22.04"
      tools:
-       nodejs: "16"
-     commands:
-       - mkdir --parents _readthedocs/html/
-       - cp --recursive docs/* _readthedocs/html/
+       nodejs: "20"
+     jobs:
+       install:
+         - npm install -g asciidoctor
+       build:
+         html:
+           - asciidoctor -D $READTHEDOCS_OUTPUT/html index.asciidoc

@@ -10,7 +10,7 @@ See `Limitations`_ for more information.
 If your account is already connected:
 
 #. Go to your project dashboard
-#. Go to :guilabel:`Admin`, then :guilabel:`Advanced settings`
+#. Go to :guilabel:`Admin`, then :guilabel:`Settings`
 #. Enable the :guilabel:`Build pull requests for this project` option
 #. Click on :guilabel:`Save`
 
@@ -26,28 +26,40 @@ Privacy levels
 
    Privacy levels are only supported on :doc:`/commercial/index`.
 
-By default, all docs built from pull requests are private.
-To change their privacy level:
+If you didn’t import your project manually and your repository is public,
+the privacy level of pull request previews will be set to *Public*,
+otherwise it will be set to *Private*.
+Public pull request previews are available to anyone with the link to the preview,
+while private previews are only available to users with access to the Read the Docs project.
+
+.. warning::
+
+   If you set the privacy level of pull request previews to *Private*,
+   make sure that only trusted users can open pull requests in your repository.
+
+   Setting pull request previews to private on a public repository can allow a malicious user
+   to access read-only APIs using the user's session that is reading the pull request preview.
+   Similar to `GHSA-pw32-ffxw-68rh <https://github.com/readthedocs/readthedocs.org/security/advisories/GHSA-pw32-ffxw-68rh>`__.
+
+To change the privacy level:
 
 #. Go to your project dashboard
-#. Go to :guilabel:`Admin`, then :guilabel:`Advanced settings`
+#. Go to :guilabel:`Admin`, then :guilabel:`Settings`
 #. Select your option in :guilabel:`Privacy level of builds from pull requests`
 #. Click on :guilabel:`Save`
 
-Privacy levels work the same way as :ref:`normal versions <versions:privacy levels>`.
+Privacy levels work the same way as :ref:`normal versions <versions:Version states>`.
 
 Limitations
 -----------
 
-- Only available for **GitHub** and **GitLab** currently. Bitbucket is not yet supported.
+- Pull requests are only available for **GitHub** and **GitLab** currently. Bitbucket is not yet supported.
 - To enable this feature, your Read the Docs account needs to be connected to an
   account with your Git provider.
 - Builds from pull requests have the same memory and time limitations
   :doc:`as regular builds </builds>`.
-- Additional formats like PDF and EPUB aren't built, to reduce build time.
-- Search queries will default to the default experience for your tool.
-  This is a feature we plan to add,
-  but don't want to overwhelm our search indexes used in production.
+- Additional formats like PDF aren't built in order to reduce build time.
+- Read the Docs doesn't index search on pull request builds. This means that Addons search and the Read the Docs Search API will return no results.
 - The built documentation is kept for 90 days after the pull request has been closed or merged.
 
 Troubleshooting
@@ -58,9 +70,9 @@ No new builds are started when I open a pull request
    send Read the Docs pull request events. You'll need to re-sync your project's
    webhook integration to reconfigure the Read the Docs webhook.
 
-   To resync your project's webhook, go to your project's admin dashboard,
+   To re-sync your project's webhook, go to your project's admin dashboard,
    :guilabel:`Integrations`, and then select the webhook integration for your
-   provider. Follow the directions on to re-sync the webhook, or create a new
+   provider. Follow the directions to re-sync the webhook, or create a new
    webhook integration.
 
    You may also notice this behavior if your Read the Docs account is not
@@ -68,18 +80,16 @@ No new builds are started when I open a pull request
    You can (re)connect your account by going to your :guilabel:`<Username dropdown>`,
    :guilabel:`Settings`, then to :guilabel:`Connected Services`.
 
-
 Build status is not being reported to your Git provider
    If opening a pull request does start a new build, but the build status is not
    being updated with your Git provider, then your connected account may have out
-   dated or insufficient permisisons.
+   dated or insufficient permissions.
 
-   Make sure that you have granted access to the Read the Docs `OAuth App`_ for
-   your personal or organization GitHub account. You can also try reconnecting
-   your account with your Git provider.
+   Make sure that you have granted access to the Read the Docs `GitHub OAuth App`_ for
+   your personal or organization GitHub account.
 
 .. seealso::
    - :ref:`guides/setup/git-repo-manual:Debugging webhooks`
    - :ref:`github-permission-troubleshooting`
 
-.. _OAuth App: https://github.com/settings/applications
+.. _GitHub OAuth App: https://github.com/settings/applications

@@ -24,11 +24,7 @@ from .mixins import OverrideHostnameMixin, S3PrivateBucketMixin
 class S3BuildMediaStorageMixin(BuildMediaStorageMixin, S3Boto3Storage):
     @cached_property
     def _rclone(self):
-        provider = "AWS"
-        # If a custom endpoint URL is given and
-        # we are running in DEBUG mode, use minio as provider.
-        if self.endpoint_url and settings.DEBUG:
-            provider = "minio"
+        provider = settings.S3_PROVIDER
 
         return RCloneS3Remote(
             bucket_name=self.bucket_name,
@@ -41,21 +37,20 @@ class S3BuildMediaStorageMixin(BuildMediaStorageMixin, S3Boto3Storage):
         )
 
 
-# pylint: disable=too-many-ancestors
 class S3BuildMediaStorage(OverrideHostnameMixin, S3BuildMediaStorageMixin):
 
     """An AWS S3 Storage backend for build artifacts."""
 
-    bucket_name = getattr(settings, 'S3_MEDIA_STORAGE_BUCKET', None)
-    override_hostname = getattr(settings, 'S3_MEDIA_STORAGE_OVERRIDE_HOSTNAME', None)
+    bucket_name = getattr(settings, "S3_MEDIA_STORAGE_BUCKET", None)
+    override_hostname = getattr(settings, "S3_MEDIA_STORAGE_OVERRIDE_HOSTNAME", None)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not self.bucket_name:
             raise ImproperlyConfigured(
-                'AWS S3 not configured correctly. '
-                'Ensure S3_MEDIA_STORAGE_BUCKET is defined.',
+                "AWS S3 not configured correctly. "
+                "Ensure S3_MEDIA_STORAGE_BUCKET is defined.",
             )
 
 
@@ -63,20 +58,19 @@ class S3BuildCommandsStorage(S3PrivateBucketMixin, S3Boto3Storage):
 
     """An AWS S3 Storage backend for build commands."""
 
-    bucket_name = getattr(settings, 'S3_BUILD_COMMANDS_STORAGE_BUCKET', None)
+    bucket_name = getattr(settings, "S3_BUILD_COMMANDS_STORAGE_BUCKET", None)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not self.bucket_name:
             raise ImproperlyConfigured(
-                'AWS S3 not configured correctly. '
-                'Ensure S3_BUILD_COMMANDS_STORAGE_BUCKET is defined.',
+                "AWS S3 not configured correctly. "
+                "Ensure S3_BUILD_COMMANDS_STORAGE_BUCKET is defined.",
             )
 
 
 class S3StaticStorageMixin:
-
     bucket_name = getattr(settings, "S3_STATIC_STORAGE_BUCKET", None)
     override_hostname = getattr(settings, "S3_STATIC_STORAGE_OVERRIDE_HOSTNAME", None)
 
@@ -85,12 +79,12 @@ class S3StaticStorageMixin:
 
         if not self.bucket_name:
             raise ImproperlyConfigured(
-                'AWS S3 not configured correctly. '
-                'Ensure S3_STATIC_STORAGE_BUCKET is defined.',
+                "AWS S3 not configured correctly. "
+                "Ensure S3_STATIC_STORAGE_BUCKET is defined.",
             )
 
-        self.bucket_acl = 'public-read'
-        self.default_acl = 'public-read'
+        self.bucket_acl = "public-read"
+        self.default_acl = "public-read"
         self.querystring_auth = False
 
 
@@ -123,28 +117,26 @@ class NoManifestS3StaticStorage(
 
 
 class S3BuildEnvironmentStorage(S3PrivateBucketMixin, S3BuildMediaStorageMixin):
-
-    bucket_name = getattr(settings, 'S3_BUILD_ENVIRONMENT_STORAGE_BUCKET', None)
+    bucket_name = getattr(settings, "S3_BUILD_ENVIRONMENT_STORAGE_BUCKET", None)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not self.bucket_name:
             raise ImproperlyConfigured(
-                'AWS S3 not configured correctly. '
-                'Ensure S3_BUILD_ENVIRONMENT_STORAGE_BUCKET is defined.',
+                "AWS S3 not configured correctly. "
+                "Ensure S3_BUILD_ENVIRONMENT_STORAGE_BUCKET is defined.",
             )
 
 
 class S3BuildToolsStorage(S3PrivateBucketMixin, S3BuildMediaStorageMixin):
-
-    bucket_name = getattr(settings, 'S3_BUILD_TOOLS_STORAGE_BUCKET', None)
+    bucket_name = getattr(settings, "S3_BUILD_TOOLS_STORAGE_BUCKET", None)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not self.bucket_name:
             raise ImproperlyConfigured(
-                'AWS S3 not configured correctly. '
-                'Ensure S3_BUILD_TOOLS_STORAGE_BUCKET is defined.',
+                "AWS S3 not configured correctly. "
+                "Ensure S3_BUILD_TOOLS_STORAGE_BUCKET is defined.",
             )

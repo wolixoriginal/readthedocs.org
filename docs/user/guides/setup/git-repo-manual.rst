@@ -1,17 +1,14 @@
-How to manually configure a Git repository
-==========================================
+How to manually configure a Git repository integration
+======================================================
 
 In this guide,
-you will find the simple steps to manually integrating your Read the Docs project with all Git providers that support our generic API.
-This includes most Git providers, for example |git_providers_and|.
+you will find the steps to manually integrate your Read the Docs project with any Git provider using :term:`webhooks <webhook>`.
+Manual integration is most useful for Git providers that we don't support with automatic configuration.
+Automatic configuration is supported for |git_providers_and|.
 
-.. seealso::
-
-   :doc:`/guides/setup/git-repo-automatic`
-     You are now reading the guide to configuring a Git repository manually.
-     If your Read the Docs account is :doc:`connected to the Git provider </guides/connecting-git-account>`,
-     we can setup the integration automatically.
-
+Git repositories that are imported manually **do not** have the required setup to send back a **commit status**.
+If you need this integration,
+you have to :doc:`configure the repository automatically </reference/git-integration>`.
 
 ..
   The following references were supposed to go inside tabs, which is
@@ -29,11 +26,11 @@ This includes most Git providers, for example |git_providers_and|.
 .. _webhook-integration-bitbucket:
 .. _webhook-integration-gitlab:
 
-Provider-specific instructions
-------------------------------
+Manual integration setup
+------------------------
 
-You need to configure your Git provider to call a webhook on Read the Docs.
-This will make Read the Docs build your documentation when a new commit, branch or tag is pushed to your repository.
+You need to configure your Git provider integration to call a webhook that alerts Read the Docs of changes.
+Read the Docs will sync versions and build your documentation whenever a Git commit happens.
 
 .. tabs::
 
@@ -46,7 +43,7 @@ This will make Read the Docs build your documentation when a new commit, branch 
         You may need to prepend *https://* to the URL.
       * For **Content type**, both *application/json* and
         *application/x-www-form-urlencoded* work
-      * Leave the **Secrets** field blank
+      * Fill the **Secret** field with the value from the integration on Read the Docs
       * Select **Let me select individual events**,
         and mark **Branch or tag creation**, **Branch or tag deletion**, **Pull requests** and **Pushes** events
       * Ensure **Active** is enabled; it is by default
@@ -56,7 +53,15 @@ This will make Read the Docs build your documentation when a new commit, branch 
       If you see a Response 200, then the webhook is correctly configured.
       For a 403 error, it's likely that the Payload URL is incorrect.
 
-      .. note:: The webhook token, intended for the GitHub **Secret** field, is not yet implemented.
+   .. tab:: GitLab
+
+      * Go to the :guilabel:`Settings` > :guilabel:`Webhooks` page for your GitLab project
+      * For **URL**, use the URL of the integration on **Read the Docs project**,
+        found on the :guilabel:`Admin` > :guilabel:`Integrations`  page
+      * Fill the **Secret token** field with the value from the integration on Read the Docs
+      * Leave the default **Push events** selected,
+        additionally mark **Tag push events** and **Merge request events**.
+      * Finish by clicking **Add Webhook**
 
    .. tab:: Bitbucket
 
@@ -64,16 +69,8 @@ This will make Read the Docs build your documentation when a new commit, branch 
       * For **URL**, use the URL of the integration on Read the Docs,
         found on the :guilabel:`Admin` > :guilabel:`Integrations`  page
       * Under **Triggers**, **Repository push** should be selected
+      * Fill the **Secret** field with the value from the integration on Read the Docs
       * Finish by clicking **Save**
-
-   .. tab:: GitLab
-
-      * Go to the :guilabel:`Settings` > :guilabel:`Webhooks` page for your GitLab project
-      * For **URL**, use the URL of the integration on **Read the Docs project**,
-        found on the :guilabel:`Admin` > :guilabel:`Integrations`  page
-      * Leave the default **Push events** selected,
-        additionally mark **Tag push events** and **Merge request events**.
-      * Finish by clicking **Add Webhook**
 
    .. tab:: Gitea
 
@@ -100,7 +97,7 @@ This will make Read the Docs build your documentation when a new commit, branch 
       * Leave the default **HTTP Method** as POST
       * For **Content type**, both *application/json* and
         *application/x-www-form-urlencoded* work
-      * Leave the **Secret** field blank
+      * Fill the **Secret** field with the value from the integration on Read the Docs
       * Select **Choose events**,
         and mark **Branch or tag creation**, **Branch or tag deletion** and **Push** events
       * Ensure **Active** is enabled; it is by default
@@ -116,35 +113,27 @@ This will make Read the Docs build your documentation when a new commit, branch 
 
       Other providers are supported through a generic webhook, see :ref:`webhook-integration-generic`.
 
+Payload validation
+------------------
 
-Additional integration
-----------------------
+All integrations are created with a secret token,
+this offers a way to verify that a webhook request is legitimate.
 
-You can configure multiple incoming :term:`webhooks <webhook>`.
+This validation is done according to each provider:
+
+- `GitHub <https://developer.github.com/webhooks/securing/>`__
+- `GitLab <https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#validate-payloads-by-using-a-secret-token>`__
+- `Bitbucket <https://support.atlassian.com/bitbucket-cloud/docs/manage-webhooks/#Secure-webhooks>`__
+
+
+Managing Integrations
+---------------------
 
 To manually set up an integration, go to :guilabel:`Admin` > :guilabel:`Integrations` >  :guilabel:`Add integration`
 dashboard page and select the integration type you'd like to add.
-After you have added the integration, you'll see a link to information about the integration.
 
 As an example, the URL pattern looks like this: ``https://readthedocs.org/api/v2/webhook/<project-name>/<id>/*``.
-
-Use this URL when setting up a new integration with your provider ^^ these steps vary depending on the provider.
-
-
-.. warning::
-
-   Git repositories that are imported manually **do not** have the required setup to send back a **commit status**.
-   If you need this integration,
-   you have to :doc:`configure the repository automatically </guides/setup/git-repo-automatic>`.
-
-.. seealso::
-
-   :doc:`/guides/build/email-notifications`
-      Quickly enable email notifications.
-
-   :doc:`/guides/build/webhooks`
-      Learn how to add custom webhook notifications.
-
+Use this URL when setting up a new integration with your provider.
 
 .. _webhook-integration-generic:
 
@@ -188,13 +177,9 @@ For example, the cURL command to build the ``dev`` branch, using the token
     curl -X POST -d "branches=dev" -d "token=1234" -d "default_branch=main"
     https://readthedocs.org/api/v2/webhook/example-project/1/
 
-A command like the one above could be called from a cron job or from a hook
-inside Git_, Subversion_, Mercurial_, or Bazaar_.
+A command like the one above could be called from a cron job or from a `Git hook`_.
 
-.. _Git: http://www.kernel.org/pub/software/scm/git/docs/githooks.html
-.. _Subversion: https://www.mikewest.org/2006/06/subversion-post-commit-hooks-101
-.. _Mercurial: http://hgbook.red-bean.com/read/handling-repository-events-with-hooks.html
-.. _Bazaar: http://wiki.bazaar.canonical.com/BzrHooks
+.. _Git hook: http://www.kernel.org/pub/software/scm/git/docs/githooks.html
 
 Authentication
 ^^^^^^^^^^^^^^
@@ -204,16 +189,8 @@ token, a check will determine if the token is valid and matches the given
 project. If instead an authenticated user is used to make this request, a check
 will be performed to ensure the authenticated user is an owner of the project.
 
-Payload validation
-------------------
-
-If your project was imported through a connected account,
-we create a secret for every integration that offers a way to verify that a webhook request is legitimate.
-Currently, `GitHub <https://developer.github.com/webhooks/securing/>`__ and `GitLab <https://docs.gitlab.com/ee/user/project/integrations/webhooks.html#validate-payloads-by-using-a-secret-token>`__
-offer a way to check this.
-
-Troubleshooting
----------------
+Troubleshooting Git provider webhooks
+-------------------------------------
 
 Debugging webhooks
 ^^^^^^^^^^^^^^^^^^
@@ -224,7 +201,6 @@ integration, such as a webhook or the generic API endpoint, stores the HTTP
 exchange that takes place between Read the Docs and the external source. You'll
 find a list of these exchanges in any of the integration detail pages.
 
-
 Webhook activation failed. Make sure you have the necessary permissions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -232,6 +208,7 @@ If you find this error,
 make sure your user has permissions over the repository.
 In case of GitHub,
 check that you have granted access to the Read the Docs `OAuth App`_ to your organization.
+A similar workflow is required for other supported providers.
 
 .. _OAuth App: https://github.com/settings/applications
 
@@ -242,6 +219,6 @@ My project isn't automatically building
 If your project isn't automatically building, you can check your integration on
 Read the Docs to see the payload sent to our servers. If there is no recent
 activity on your Read the Docs project webhook integration, then it's likely
-that your VCS provider is not configured correctly. If there is payload
+that your Git provider is not configured correctly. If there is payload
 information on your Read the Docs project, you might need to verify that your
 versions are configured to build correctly.

@@ -10,27 +10,14 @@ from glob import glob
 from pathlib import Path
 
 import structlog
-from django.conf import settings
-from django.template import loader as template_loader
-from django.template.loader import render_to_string
-from django.urls import reverse
-from requests.exceptions import ConnectionError
 
-from readthedocs.builds import utils as version_utils
-from readthedocs.builds.models import APIVersion
-from readthedocs.core.utils.filesystem import safe_open
-from readthedocs.doc_builder.exceptions import PDFNotFound
-from readthedocs.projects.constants import PUBLIC
+from readthedocs.projects.constants import OLD_LANGUAGES_CODE_MAPPING
 from readthedocs.projects.exceptions import ProjectConfigurationError, UserFileNotFound
-from readthedocs.projects.models import Feature
-from readthedocs.projects.templatetags.projects_tags import sort_version_aware
-from readthedocs.projects.utils import safe_write
 
 from ..base import BaseBuilder
 from ..constants import PDF_RE
 from ..environments import BuildCommand, DockerBuildCommand
 from ..exceptions import BuildUserError
-from ..signals import finalize_sphinx_context_data
 
 log = structlog.get_logger(__name__)
 
@@ -113,200 +100,30 @@ class BaseSphinx(BaseBuilder):
             # because Read the Docs will automatically create one for it.
             pass
 
-    def _write_config(self, master_doc='index'):
-        """Create ``conf.py`` if it doesn't exist."""
-        log.info(
-            'Creating default Sphinx config file for project.',
-            project_slug=self.project.slug,
-            version_slug=self.version.slug,
-        )
-        docs_dir = self.docs_dir()
-        conf_template = render_to_string(
-            'sphinx/conf.py.conf',
-            {
-                'project': self.project,
-                'version': self.version,
-                'master_doc': master_doc,
-            },
-        )
-        conf_file = os.path.join(docs_dir, 'conf.py')
-        safe_write(conf_file, conf_template)
+    def get_language(self, project):
+        """Get a Sphinx compatible language code."""
+        language = project.language
+        return OLD_LANGUAGES_CODE_MAPPING.get(language, language)
 
-    def get_config_params(self):
-        """Get configuration parameters to be rendered into the conf file."""
-        # TODO this should be handled better in the theme
-        conf_py_path = os.path.join(
-            os.path.sep,
-            os.path.dirname(
-                os.path.relpath(
-                    self.config_file,
-                    self.project_path,
-                ),
-            ),
-            '',
-        )
-        remote_version = self.version.commit_name
-
-        github_user, github_repo = version_utils.get_github_username_repo(
-            url=self.project.repo,
-        )
-        github_version_is_editable = (self.version.type == 'branch')
-        display_github = github_user is not None
-
-        bitbucket_user, bitbucket_repo = version_utils.get_bitbucket_username_repo(  # noqa
-            url=self.project.repo,
-        )
-        bitbucket_version_is_editable = (self.version.type == 'branch')
-        display_bitbucket = bitbucket_user is not None
-
-        gitlab_user, gitlab_repo = version_utils.get_gitlab_username_repo(
-            url=self.project.repo,
-        )
-        gitlab_version_is_editable = (self.version.type == 'branch')
-        display_gitlab = gitlab_user is not None
-
-        versions = []
-        downloads = []
-        subproject_urls = []
-        try:
-            active_versions_data = self.api_client.project(
-                self.project.pk
-            ).active_versions.get()["versions"]
-            versions = sort_version_aware(
-                [APIVersion(**version_data) for version_data in active_versions_data]
-            )
-            if not self.project.has_feature(Feature.ALL_VERSIONS_IN_HTML_CONTEXT):
-                versions = [v for v in versions if v.privacy_level == PUBLIC]
-            downloads = self.api_client.version(self.version.pk).get()["downloads"]
-            subproject_urls = [
-                (project["slug"], project["canonical_url"])
-                for project in self.api_client.project(self.project.pk)
-                .subprojects()
-                .get()["subprojects"]
-            ]
-        except ConnectionError:
-            log.exception(
-                "Timeout while fetching versions/downloads/subproject_urls for Sphinx context.",
-                project_slug=self.project.slug,
-                version_slug=self.version.slug,
-            )
-
-        build_id = self.build_env.build.get('id')
-        build_url = None
-        if build_id:
-            build_url = reverse(
-                'builds_detail',
-                kwargs={
-                    'project_slug': self.project.slug,
-                    'build_pk': build_id,
-                },
-            )
-            protocol = 'http' if settings.DEBUG else 'https'
-            build_url = f'{protocol}://{settings.PRODUCTION_DOMAIN}{build_url}'
-
-        vcs_url = None
-        if self.version.is_external:
-            vcs_url = self.version.vcs_url
-
-        commit = (
-            self.project.vcs_repo(
-                version=self.version.slug,
-                environment=self.build_env,
-            )
-            .commit
-        )
-
-        data = {
-            "html_theme": "sphinx_rtd_theme",
-            "html_theme_import": "sphinx_rtd_theme",
-            "current_version": self.version.verbose_name,
-            "project": self.project,
-            "version": self.version,
-            "settings": settings,
-            "conf_py_path": conf_py_path,
-            "api_host": settings.PUBLIC_API_URL,
-            "commit": commit,
-            "versions": versions,
-            "downloads": downloads,
-            "subproject_urls": subproject_urls,
-            "build_url": build_url,
-            "vcs_url": vcs_url,
-            "proxied_static_path": self.project.proxied_static_path,
-            # GitHub
-            'github_user': github_user,
-            'github_repo': github_repo,
-            'github_version': remote_version,
-            'github_version_is_editable': github_version_is_editable,
-            'display_github': display_github,
-
-            # Bitbucket
-            'bitbucket_user': bitbucket_user,
-            'bitbucket_repo': bitbucket_repo,
-            'bitbucket_version': remote_version,
-            'bitbucket_version_is_editable': bitbucket_version_is_editable,
-            'display_bitbucket': display_bitbucket,
-
-            # GitLab
-            'gitlab_user': gitlab_user,
-            'gitlab_repo': gitlab_repo,
-            'gitlab_version': remote_version,
-            'gitlab_version_is_editable': gitlab_version_is_editable,
-            'display_gitlab': display_gitlab,
-
-            # Features
-            "docsearch_disabled": self.project.has_feature(
-                Feature.DISABLE_SERVER_SIDE_SEARCH
-            ),
-            "skip_html_theme_path": self.project.has_feature(
-                Feature.SKIP_SPHINX_HTML_THEME_PATH
-            ),
-        }
-
-        finalize_sphinx_context_data.send(
-            sender=self.__class__,
-            build_env=self.build_env,
-            data=data,
-        )
-
-        return data
-
-    def append_conf(self):
-        """
-        Find or create a ``conf.py`` and appends default content.
-
-        The default content is rendered from ``doc_builder/conf.py.tmpl``.
-        """
+    def show_conf(self):
+        """Show the current ``conf.py`` being used."""
         if self.config_file is None:
-            master_doc = self.create_index(extension='rst')
-            self._write_config(master_doc=master_doc)
-
-        try:
-            self.config_file = (
-                self.config_file or self.project.conf_file(self.version.slug)
-            )
-            # Allow symlinks, but only the ones that resolve inside the base directory.
-            outfile = safe_open(
-                self.config_file, "a", allow_symlinks=True, base_path=self.project_path
-            )
-            if not outfile:
-                raise UserFileNotFound(
-                    UserFileNotFound.FILE_NOT_FOUND.format(self.config_file)
-                )
-        except IOError:
             raise ProjectConfigurationError(ProjectConfigurationError.NOT_FOUND)
 
-        # Append config to project conf file
-        tmpl = template_loader.get_template('doc_builder/conf.py.tmpl')
-        rendered = tmpl.render(self.get_config_params())
+        self.config_file = self.config_file or self.project.conf_file(self.version.slug)
 
-        with outfile:
-            outfile.write('\n')
-            outfile.write(rendered)
+        if not os.path.exists(self.config_file):
+            raise UserFileNotFound(
+                message_id=UserFileNotFound.FILE_NOT_FOUND,
+                format_values={
+                    "filename": os.path.relpath(self.config_file, self.project_path),
+                },
+            )
 
         # Print the contents of conf.py in order to make the rendered
         # configfile visible in the build logs
         self.run(
-            'cat',
+            "cat",
             os.path.relpath(
                 self.config_file,
                 self.project_path,
@@ -318,12 +135,11 @@ class BaseSphinx(BaseBuilder):
         project = self.project
         build_command = [
             *self.get_sphinx_cmd(),
-            '-T',
-            '-E',
-            *self.sphinx_parallel_arg(),
+            "-T",
         ]
         if self.config.sphinx.fail_on_warning:
             build_command.extend(["-W", "--keep-going"])
+        language = self.get_language(project)
         build_command.extend(
             [
                 "-b",
@@ -331,7 +147,7 @@ class BaseSphinx(BaseBuilder):
                 "-d",
                 self.sphinx_doctrees_dir,
                 "-D",
-                f"language={project.language}",
+                f"language={language}",
                 # Sphinx's source directory (SOURCEDIR).
                 # We are executing this command at the location of the `conf.py` file (CWD).
                 # TODO: ideally we should execute it from where the repository was clonned,
@@ -354,15 +170,10 @@ class BaseSphinx(BaseBuilder):
 
     def get_sphinx_cmd(self):
         return (
-            self.python_env.venv_bin(filename='python'),
-            '-m',
-            'sphinx',
+            self.python_env.venv_bin(filename="python"),
+            "-m",
+            "sphinx",
         )
-
-    def sphinx_parallel_arg(self):
-        if self.project.has_feature(Feature.SPHINX_PARALLEL):
-            return ['-j', 'auto']
-        return []
 
 
 class HtmlBuilder(BaseSphinx):
@@ -370,31 +181,23 @@ class HtmlBuilder(BaseSphinx):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sphinx_builder = 'readthedocs'
-        if self.project.has_feature(Feature.USE_SPHINX_BUILDERS):
-            self.sphinx_builder = 'html'
+        self.sphinx_builder = "html"
 
 
 class HtmlDirBuilder(HtmlBuilder):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sphinx_builder = 'readthedocsdirhtml'
-        if self.project.has_feature(Feature.USE_SPHINX_BUILDERS):
-            self.sphinx_builder = 'dirhtml'
+        self.sphinx_builder = "dirhtml"
 
 
 class SingleHtmlBuilder(HtmlBuilder):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sphinx_builder = 'readthedocssinglehtml'
-        if self.project.has_feature(Feature.USE_SPHINX_BUILDERS):
-            self.sphinx_builder = 'singlehtml'
+        self.sphinx_builder = "singlehtml"
 
 
 class LocalMediaBuilder(BaseSphinx):
-    sphinx_builder = 'readthedocssinglehtmllocalmedia'
+    sphinx_builder = "singlehtml"
     relative_output_dir = "htmlzip"
 
     def _post_build(self):
@@ -440,7 +243,6 @@ class LocalMediaBuilder(BaseSphinx):
 
 
 class EpubBuilder(BaseSphinx):
-
     sphinx_builder = "epub"
     relative_output_dir = "epub"
 
@@ -514,17 +316,16 @@ class PdfBuilder(BaseSphinx):
     pdf_file_name = None
 
     def build(self):
+        language = self.get_language(self.project)
         self.run(
             *self.get_sphinx_cmd(),
             "-T",
-            "-E",
-            *self.sphinx_parallel_arg(),
             "-b",
             self.sphinx_builder,
             "-d",
             self.sphinx_doctrees_dir,
             "-D",
-            f"language={self.project.language}",
+            f"language={language}",
             # Sphinx's source directory (SOURCEDIR).
             # We are executing this command at the location of the `conf.py` file (CWD).
             # TODO: ideally we should execute it from where the repository was clonned,
@@ -539,7 +340,7 @@ class PdfBuilder(BaseSphinx):
 
         tex_files = glob(os.path.join(self.absolute_host_output_dir, "*.tex"))
         if not tex_files:
-            raise BuildUserError("No TeX files were found.")
+            raise BuildUserError(message_id=BuildUserError.TEX_FILE_NOT_FOUND)
 
         # Run LaTeX -> PDF conversions
         success = self._build_latexmk(self.project_path)
@@ -557,7 +358,7 @@ class PdfBuilder(BaseSphinx):
         # FIXME: instead of checking by language here, what we want to check if
         # ``latex_engine`` is ``platex``
         pdfs = []
-        if self.project.language == 'ja':
+        if self.project.language == "ja":
             # Japanese language is the only one that requires this extra
             # step. I don't know exactly why but most of the documentation that
             # I read differentiate this language from the others. I suppose
@@ -566,18 +367,18 @@ class PdfBuilder(BaseSphinx):
 
         for image in itertools.chain(images, pdfs):
             self.run(
-                'extractbb',
+                "extractbb",
                 image.name,
                 cwd=self.absolute_host_output_dir,
                 record=False,
             )
 
-        rcfile = 'latexmkrc'
-        if self.project.language == 'ja':
-            rcfile = 'latexmkjarc'
+        rcfile = "latexmkrc"
+        if self.project.language == "ja":
+            rcfile = "latexmkjarc"
 
         self.run(
-            'cat',
+            "cat",
             rcfile,
             cwd=self.absolute_host_output_dir,
         )
@@ -588,19 +389,19 @@ class PdfBuilder(BaseSphinx):
             latex_class = LatexBuildCommand
 
         cmd = [
-            'latexmk',
-            '-r',
+            "latexmk",
+            "-r",
             rcfile,
             # FIXME: check for platex here as well
-            '-pdfdvi' if self.project.language == 'ja' else '-pdf',
+            "-pdfdvi" if self.project.language == "ja" else "-pdf",
             # When ``-f`` is used, latexmk will continue building if it
             # encounters errors. We still receive a failure exit code in this
             # case, but the correct steps should run.
-            '-f',
-            '-dvi-',
-            '-ps-',
-            f'-jobname={self.project.slug}',
-            '-interaction=nonstopmode',
+            "-f",
+            "-dvi-",
+            "-ps-",
+            f"-jobname={self.project.slug}",
+            "-interaction=nonstopmode",
         ]
 
         cmd_ret = self.build_env.run_command_class(
@@ -618,7 +419,7 @@ class PdfBuilder(BaseSphinx):
         """Internal post build to cleanup PDF output directory and leave only one .pdf file."""
 
         if not self.pdf_file_name:
-            raise PDFNotFound()
+            raise BuildUserError(BuildUserError.PDF_NOT_FOUND)
 
         # TODO: merge this with ePUB since it's pretty much the same
         temp_pdf_file = f"/tmp/{self.project.slug}-{self.version.slug}.pdf"

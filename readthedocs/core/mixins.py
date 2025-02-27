@@ -1,6 +1,8 @@
 """Common mixin classes for views."""
+
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from vanilla import ListView
+from vanilla import DeleteView, ListView
 
 from readthedocs.proxito.cache import cache_response, private_response
 
@@ -11,17 +13,15 @@ class ListViewWithForm(ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['form'] = self.get_form(data=None, files=None)
+        context["form"] = self.get_form(data=None, files=None)
         return context
 
 
 class PrivateViewMixin(LoginRequiredMixin):
-
     pass
 
 
 class ProxiedAPIMixin:
-
     # DRF has BasicAuthentication and SessionAuthentication as default classes.
     # We don't support neither in the community site.
     authentication_classes = []
@@ -65,3 +65,21 @@ class CDNCacheControlMixin:
 
     def can_be_cached(self, request):
         return self.cache_response
+
+
+class DeleteViewWithMessage(DeleteView):
+
+    """
+    Delete view that shows a message after deleting an object.
+
+    Refs https://code.djangoproject.com/ticket/21926
+    """
+
+    success_message = None
+
+    def post(self, request, *args, **kwargs):
+        resp = super().post(request, *args, **kwargs)
+        # Check if resp is a redirect, which means the object was deleted
+        if resp.status_code == 302 and self.success_message:
+            messages.success(self.request, self.success_message)
+        return resp

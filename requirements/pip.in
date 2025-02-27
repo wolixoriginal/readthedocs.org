@@ -2,19 +2,23 @@
 pip
 virtualenv
 
-django~=3.2.0
+django~=4.2.0
 django-extensions
 django-polymorphic
 django-autoslug
 
-# 3.1.0 includes changes that require running `makemigrations`
-# https://django-simple-history.readthedocs.io/en/latest/#changes
-django-simple-history==3.0.0
+# https://www.psycopg.org/psycopg3/docs/basic/install.html
+psycopg[binary,pool]
+
+django-simple-history
 
 djangorestframework
+djangorestframework-api-key
+rest-framework-generic-relations
 
-# For intersphinx during builds
-Sphinx
+# Embed v1 still uses docutils.
+# Remove this dependency once we deprecate this API.
+docutils
 
 # Filtering for the REST API
 django-filter
@@ -29,29 +33,35 @@ django-vanilla-views
 # dependency as well.
 jsonfield
 
+django-safemigrate
+
+# Impersonate users in the Django admin for support.
+django-impersonate
+
 requests
 requests-toolbelt
 slumber
-# awscli (requirements/docker.txt) isn't compatible with pyyaml >= 5.5.
-pyyaml==5.4.1
+pyyaml
 Pygments
+pydantic
 
-django-redis
+dnspython
+
+# Used for Redis cache Django backend (`django.core.cache.backends.redis.RedisCache`)
+redis
+
 celery
+django-celery-beat
 
-# 0.52.0 requires creating a new email template:
-#  templates/account/email/acccount_already_exists_message.html
-# See https://github.com/readthedocs/readthedocs.org/pull/9853#discussion_r1060496492
-django-allauth==0.51.0
+django-allauth[socialaccount,saml,mfa]
 
 requests-oauthlib
 
-GitPython
-
 # Search
-elasticsearch<8.0
-elasticsearch-dsl<8.0
-django-elasticsearch-dsl<8.0
+elasticsearch~=8.0
+elasticsearch-dsl~=8.0
+django-elasticsearch-dsl~=8.0
+
 selectolax
 
 # embed
@@ -82,23 +92,17 @@ dj-stripe==2.6.3
 
 markdown
 
-# unicode-slugify==0.1.5 is not released on PyPI yet
-git+https://github.com/mozilla/unicode-slugify@b696c37#egg=unicode-slugify==0.1.5
+unicode-slugify
 
-# Version 2.4 makes tests to fail with:
-# "RecursionError: maximum recursion depth exceeded in comparison"
-django-formtools<2.4
+django-formtools
 
 # We cannot upgrade to >=2 because it fails with
 # django.template.exceptions.TemplateDoesNotExist: bootstrap/field.html
 django-crispy-forms<2
 
-# Force to upgrade to a version with a fix for socket timeouts
-# https://docker-py.readthedocs.io/en/stable/change-log.html#bugfixes
-docker==6.1.2
+docker
 
 django-annoying
-django-messages-extends
 djangorestframework-jsonp
 django-taggit
 dj-pagination
@@ -112,7 +116,10 @@ django-cors-headers
 # User agent parsing - used for analytics purposes
 user-agents
 
-django-storages[boto3]
+# Pinned because we need to remove the usage of
+# `get_available_overwrite_name` first
+# See https://github.com/readthedocs/readthedocs.org/pull/11505
+django-storages[boto3]==1.14.3
 
 
 # Required only in development and linting
@@ -123,11 +130,20 @@ django-csp
 
 # Upgrading to 3.x requires some extra work
 # https://django-structlog.readthedocs.io/en/latest/upgrade_guide.html#upgrading-to-3-0
+# NOTE: that django-structlog is in version 6.x now,
+# so we should probably consider migrating to avoid incompatibility issues.
 django-structlog==2.2.0
+# Pining due to a Sentry error we started getting
+# https://read-the-docs.sentry.io/issues/4678167578/events/2d9d348729874d67b120b153908ca54c/
+django-ipware<6.0.0
 
-structlog
+# https://github.com/readthedocs/readthedocs.org/issues/10990
+structlog==23.2.0
 dparse
 
 gunicorn
 
 django-cacheops
+
+# Used by Addons for sorting patterns
+bumpver

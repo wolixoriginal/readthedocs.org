@@ -1,5 +1,5 @@
-How to manage your Read the Docs for Business subscription
-==========================================================
+How to manage your subscription
+===============================
 
 We want to make it easy to manage your billing information.
 All :doc:`organization owners </commercial/subscriptions>` can manage the subscription for that organization.
@@ -10,16 +10,13 @@ It's easy to achieve a number of common tasks in this dashboard:
 * View, download, and pay invoices.
 * Add additional tax (VAT/EIN) or contact email addresses on your invoices.
 
-You can always find our most up to date pricing information on our `pricing page <https://about.readthedocs.com/pricing/>`_.
+You can always find our most up-to-date pricing information on our `pricing page <https://about.readthedocs.com/pricing/>`_.
 
 Managing your subscription
 --------------------------
 
-* Go to https://readthedocs.com/organizations/.
-* Select your organization from this list.
-* Select :guilabel:`Settings` at the top of the page.
-* Select the :guilabel:`Subscription` tab on the left.
-* Click :guilabel:`Manage Subscription`.
+1. Navigate to the `subscription management page <https://readthedocs.com/organizations/choose/subscription_detail/>`__.
+2. Click :guilabel:`Manage Subscription`.
 
 This action will take you to the Stripe billing portal where you can manage your subscription.
 
@@ -35,7 +32,7 @@ Cancelling your subscription can be done following the instructions in `Managing
 Your subscription will remain active for the remainder of the current billing period,
 and will not renew for the next billing period.
 
-**We can not cancel subscriptions through an email request,
+**We cannot cancel subscriptions through an email request,
 as email is an insecure method of verifying a user's identity.**
 If you email us about this,
 we require you to verify your identity by logging into your Read the Docs account and submitting an official support request there.
@@ -45,8 +42,8 @@ Billing information
 
 We provide both monthly and annual subscriptions for all plans.
 Annual plans are given a 2 month discount compared to monthly billing.
-We only support credit card billing for our Basic and Advanced plans.
-For our Pro and Enterprise users, we support invoice-based and PO billing.
+We support credit card billing for all plans.
+Pro and Enterprise plans can use invoice-based and PO billing for annual subscriptions.
 
 .. tip::
     We recommend paying by credit card for all users,
@@ -68,5 +65,5 @@ is generally where we recommend most academic projects to host their projects.
 If you have constraints on how public your documentation can be,
 our commercial hosting is probably a better fit.
 
-We offer a 50% discount on our all of our commercial plans to certified academic and non-profit organizations.
+We offer a 50% discount on all of our commercial plans to certified academic and non-profit organizations.
 Please contact :doc:`/support` to request this discount.

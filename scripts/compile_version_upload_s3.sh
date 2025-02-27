@@ -59,8 +59,8 @@ set -e # Stop on errors
 set -x # Echo commands
 
 # Define variables
-SLEEP=350 # Container timeout
-OS="${OS:-ubuntu-22.04}" # Docker image name
+SLEEP=900 # Container timeout
+OS="${OS:-ubuntu-24.04}" # Docker image name
 
 TOOL=$1
 VERSION=$2
@@ -68,9 +68,23 @@ VERSION=$2
 # https://stackoverflow.com/questions/59895/how-can-i-get-the-source-directory-of-a-bash-script-from-within-the-script-itsel
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-# Spin up a container with the Ubuntu 20.04 LTS image
+# Spin up a container with the latest Ubuntu LTS image
 CONTAINER_ID=$(docker run --user docs --rm --detach --volume ${SCRIPT_DIR}/python-build.diff:/tmp/python-build.diff readthedocs/build:$OS sleep $SLEEP)
 echo "Running all the commands in Docker container: $CONTAINER_ID"
+
+# TODO: uncomment this to show the asdf version on the build output.
+# I'm commenting it now because it's failing for some reason and that I'm not able to solve.
+#    OCI runtime exec failed: exec failed: container_linux.go:380: starting container process caused: exec: "asdf": executable file not found in $PATH: unknown
+#
+# Run "asdf version" from inside the container
+# echo -n 'asdf version: '
+# docker exec --user root $CONTAINER_ID asdf version
+
+# Update asdf to the latest stable release
+docker exec $CONTAINER_ID asdf update
+# Update all asdf plugins to the latest commit
+# (we require this to be able to compile newer versions)
+docker exec $CONTAINER_ID asdf plugin update --all
 
 # Install the tool version requested
 if [[ $TOOL == "python" ]]
@@ -100,18 +114,17 @@ docker exec $CONTAINER_ID asdf reshim $TOOL
 # for now to avoid changing versions.
 if [[ $TOOL == "python" ]] && [[ ! $VERSION =~ (^miniconda.*|^mambaforge.*) ]]
 then
-    RTD_PIP_VERSION=21.2.4
-    RTD_SETUPTOOLS_VERSION=57.4.0
-    RTD_VIRTUALENV_VERSION=20.7.2
+    # Virtualenv 20.21.1 is the latest version that supports Python 3.7 till 3.12.
+    # When adding a new version of Python, we need to pin a compatible version of
+    # virtualenv for that version of Python.
+    RTD_VIRTUALENV_VERSION=20.21.1
 
-    if [[ $VERSION == "2.7.18" ]]
+    if [[ $VERSION == 2.7.* || $VERSION == 3.6.* ]]
     then
-        # Pin to the latest versions supported on Python 2.7
-        RTD_PIP_VERSION=20.3.4
-        RTD_SETUPTOOLS_VERSION=44.1.1
+        # Pin to the latest versions supported on Python 2.7 and 3.6.
         RTD_VIRTUALENV_VERSION=20.7.2
     fi
-    docker exec $CONTAINER_ID $TOOL -m pip install -U pip==$RTD_PIP_VERSION setuptools==$RTD_SETUPTOOLS_VERSION virtualenv==$RTD_VIRTUALENV_VERSION
+    docker exec $CONTAINER_ID $TOOL -m pip install -U virtualenv==$RTD_VIRTUALENV_VERSION
 fi
 
 # Compress it as a .tar.gz without include the full path in the compressed file

@@ -1,7 +1,9 @@
 from django.test.utils import override_settings
-from django_dynamic_fixture import get
 
-from readthedocs.projects.models import Feature
+from readthedocs.projects.constants import (
+    MULTIPLE_VERSIONS_WITHOUT_TRANSLATIONS,
+    SINGLE_VERSION_WITHOUT_TRANSLATIONS,
+)
 from readthedocs.proxito.tests.base import BaseDocServing
 
 
@@ -11,38 +13,29 @@ from readthedocs.proxito.tests.base import BaseDocServing
     RTD_EXTERNAL_VERSION_DOMAIN="readthedocs.build",
 )
 class TestCustomPathPrefixes(BaseDocServing):
-    def setUp(self):
-        super().setUp()
-        get(
-            Feature,
-            feature_id=Feature.USE_UNRESOLVER_WITH_PROXITO,
-            default_true=True,
-            future_default_true=True,
-        )
-
     def test_custom_prefix_multi_version_project(self):
         self.project.custom_prefix = "/custom/prefix/"
         self.project.save()
         host = "project.readthedocs.io"
 
         # Root redirect.
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/custom/prefix/en/latest/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Trailing slash redirect
-        resp = self.client.get("/custom/prefix/en/latest", HTTP_HOST=host)
+        resp = self.client.get("/custom/prefix/en/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/custom/prefix/en/latest/"
         )
 
-        resp = self.client.get("/custom/prefix/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/custom/prefix/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -50,7 +43,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         resp = self.client.get(
-            "/custom/prefix/en/latest/api/index.html", HTTP_HOST=host
+            "/custom/prefix/en/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
@@ -63,17 +56,17 @@ class TestCustomPathPrefixes(BaseDocServing):
         self.project.save()
         host = "project.readthedocs.io"
 
-        resp = self.client.get("/es/latest/", HTTP_HOST=host)
+        resp = self.client.get("/es/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Trailing slash redirect
-        resp = self.client.get("/custom/prefix/es/latest", HTTP_HOST=host)
+        resp = self.client.get("/custom/prefix/es/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/custom/prefix/es/latest/"
         )
 
-        resp = self.client.get("/custom/prefix/es/latest/", HTTP_HOST=host)
+        resp = self.client.get("/custom/prefix/es/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -81,7 +74,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         resp = self.client.get(
-            "/custom/prefix/es/latest/api/index.html", HTTP_HOST=host
+            "/custom/prefix/es/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
@@ -90,32 +83,75 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
     def test_custom_prefix_single_version_project(self):
-        self.project.single_version = True
+        self.project.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.project.custom_prefix = "/custom-prefix/"
         self.project.save()
         host = "project.readthedocs.io"
 
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/custom-prefix/"
         )
 
         # Trailing slash redirect
-        resp = self.client.get("/custom-prefix", HTTP_HOST=host)
+        resp = self.client.get("/custom-prefix", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/custom-prefix/"
         )
 
-        resp = self.client.get("/custom-prefix/", HTTP_HOST=host)
+        resp = self.client.get("/custom-prefix/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
             "/proxito/media/html/project/latest/index.html",
         )
 
-        resp = self.client.get("/custom-prefix/api/index.html", HTTP_HOST=host)
+        resp = self.client.get("/custom-prefix/api/index.html", headers={"host": host})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp["x-accel-redirect"],
+            "/proxito/media/html/project/latest/api/index.html",
+        )
+
+    def test_custom_prefix_multiple_versions_without_translations_project(self):
+        self.project.versioning_scheme = MULTIPLE_VERSIONS_WITHOUT_TRANSLATIONS
+        self.project.custom_prefix = "/custom-prefix/"
+        self.project.save()
+        host = "project.readthedocs.io"
+
+        # Root redirect.
+        resp = self.client.get("/", headers={"host": host})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(
+            resp["Location"], "http://project.readthedocs.io/custom-prefix/latest/"
+        )
+
+        # Root prefix redirect.
+        resp = self.client.get("/custom-prefix/", headers={"host": host})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(
+            resp["Location"], "http://project.readthedocs.io/custom-prefix/latest/"
+        )
+
+        # Trailing slash redirect
+        resp = self.client.get("/custom-prefix/latest", headers={"host": host})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(
+            resp["Location"], "http://project.readthedocs.io/custom-prefix/latest/"
+        )
+
+        resp = self.client.get("/custom-prefix/latest/", headers={"host": host})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp["x-accel-redirect"],
+            "/proxito/media/html/project/latest/index.html",
+        )
+
+        resp = self.client.get(
+            "/custom-prefix/latest/api/index.html", headers={"host": host}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -128,25 +164,27 @@ class TestCustomPathPrefixes(BaseDocServing):
         host = "project.readthedocs.io"
 
         # Root redirect for the main project.
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "http://project.readthedocs.io/en/latest/")
 
         # Serving works on the main project.
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # Subproject to main project redirect
-        resp = self.client.get("/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get("/", headers={"host": "subproject.readthedocs.io"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/custom/subproject/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get(
+            "/en/latest/", headers={"host": "subproject.readthedocs.io"}
+        )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -154,21 +192,21 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Old paths
-        resp = self.client.get("/projects/subproject/", HTTP_HOST=host)
+        resp = self.client.get("/projects/subproject/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
-        resp = self.client.get("/projects/subproject/en/latest", HTTP_HOST=host)
+        resp = self.client.get("/projects/subproject/en/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Root redirect for the subproject
-        resp = self.client.get("/custom/subproject", HTTP_HOST=host)
+        resp = self.client.get("/custom/subproject", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
             "http://project.readthedocs.io/custom/subproject/en/latest/",
         )
 
-        resp = self.client.get("/custom/subproject/", HTTP_HOST=host)
+        resp = self.client.get("/custom/subproject/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -176,7 +214,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Trailing slash redirect
-        resp = self.client.get("/custom/subproject/en/latest", HTTP_HOST=host)
+        resp = self.client.get("/custom/subproject/en/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -184,7 +222,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Normal serving
-        resp = self.client.get("/custom/subproject/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/custom/subproject/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -192,7 +230,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         resp = self.client.get(
-            "/custom/subproject/en/latest/api/index.html", HTTP_HOST=host
+            "/custom/subproject/en/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
@@ -206,57 +244,61 @@ class TestCustomPathPrefixes(BaseDocServing):
         host = "project.readthedocs.io"
 
         # Root redirect for the main project.
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "http://project.readthedocs.io/en/latest/")
 
         # Serving works on the main project.
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # Subproject to main project redirect
-        resp = self.client.get("/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get("/", headers={"host": "subproject.readthedocs.io"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "http://project.readthedocs.io/subproject/")
 
-        resp = self.client.get("/en/latest/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get(
+            "/en/latest/", headers={"host": "subproject.readthedocs.io"}
+        )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/subproject/en/latest/"
         )
 
         # Root redirect for the subproject
-        resp = self.client.get("/subproject", HTTP_HOST=host)
+        resp = self.client.get("/subproject", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/subproject/en/latest/"
         )
 
-        resp = self.client.get("/subproject/", HTTP_HOST=host)
+        resp = self.client.get("/subproject/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/subproject/en/latest/"
         )
 
         # Trailing slash redirect
-        resp = self.client.get("/subproject/en/latest", HTTP_HOST=host)
+        resp = self.client.get("/subproject/en/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/subproject/en/latest/"
         )
 
         # Normal serving
-        resp = self.client.get("/subproject/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/subproject/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
             "/proxito/media/html/subproject/latest/index.html",
         )
 
-        resp = self.client.get("/subproject/en/latest/api/index.html", HTTP_HOST=host)
+        resp = self.client.get(
+            "/subproject/en/latest/api/index.html", headers={"host": host}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -270,64 +312,68 @@ class TestCustomPathPrefixes(BaseDocServing):
         host = "project.readthedocs.io"
 
         # Root redirect for the main project.
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/prefix/en/latest/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Serving works on the main project.
-        resp = self.client.get("/prefix/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # Subproject to main project redirect
-        resp = self.client.get("/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get("/", headers={"host": "subproject.readthedocs.io"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get(
+            "/en/latest/", headers={"host": "subproject.readthedocs.io"}
+        )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/en/latest/"
         )
 
         # Root redirect for the subproject
-        resp = self.client.get("/s/subproject", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/en/latest/"
         )
 
-        resp = self.client.get("/s/subproject/", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/en/latest/"
         )
 
         # Trailing slash redirect
-        resp = self.client.get("/s/subproject/en/latest", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject/en/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/en/latest/"
         )
 
         # Normal serving
-        resp = self.client.get("/s/subproject/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
             "/proxito/media/html/subproject/latest/index.html",
         )
 
-        resp = self.client.get("/s/subproject/en/latest/api/index.html", HTTP_HOST=host)
+        resp = self.client.get(
+            "/s/subproject/en/latest/api/index.html", headers={"host": host}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -340,11 +386,11 @@ class TestCustomPathPrefixes(BaseDocServing):
         self.project.save()
         host = "project.readthedocs.io"
 
-        resp = self.client.get("/es/latest/", HTTP_HOST=host)
+        resp = self.client.get("/es/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Serving works on the main project.
-        resp = self.client.get("/prefix/es/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/es/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -352,14 +398,16 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Normal serving
-        resp = self.client.get("/s/subproject/es/latest/", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject/es/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
             "/proxito/media/html/subproject-translation/latest/index.html",
         )
 
-        resp = self.client.get("/s/subproject/es/latest/api/index.html", HTTP_HOST=host)
+        resp = self.client.get(
+            "/s/subproject/es/latest/api/index.html", headers={"host": host}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -374,39 +422,41 @@ class TestCustomPathPrefixes(BaseDocServing):
         host = "project.readthedocs.io"
 
         # Root redirect for the main project.
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "http://project.readthedocs.io/en/latest/")
 
         # Serving works on the main project.
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # Subproject to main project redirect
-        resp = self.client.get("/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get("/", headers={"host": "subproject.readthedocs.io"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST="subproject.readthedocs.io")
+        resp = self.client.get(
+            "/en/latest/", headers={"host": "subproject.readthedocs.io"}
+        )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/s/subproject/en/latest/"
         )
 
         # Root redirect for the subproject
-        resp = self.client.get("/s/subproject", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
             "http://project.readthedocs.io/s/subproject/prefix/en/latest/",
         )
 
-        resp = self.client.get("/s/subproject/", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -414,7 +464,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Trailing slash redirect
-        resp = self.client.get("/s/subproject/prefix/en/latest", HTTP_HOST=host)
+        resp = self.client.get("/s/subproject/prefix/en/latest", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -422,7 +472,9 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Normal serving
-        resp = self.client.get("/s/subproject/prefix/en/latest/", HTTP_HOST=host)
+        resp = self.client.get(
+            "/s/subproject/prefix/en/latest/", headers={"host": host}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -430,7 +482,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         resp = self.client.get(
-            "/s/subproject/prefix/en/latest/api/index.html", HTTP_HOST=host
+            "/s/subproject/prefix/en/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
@@ -444,24 +496,24 @@ class TestCustomPathPrefixes(BaseDocServing):
         self.project.save()
         host = "project.readthedocs.io"
 
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/prefix/en/latest/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Serving works on the main project.
-        resp = self.client.get("/prefix/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # Root redirect for the subproject
-        resp = self.client.get("/prefix/subproject", HTTP_HOST=host)
+        resp = self.client.get("/prefix/subproject", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -469,7 +521,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Normal serving
-        resp = self.client.get("/prefix/subproject/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/subproject/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -477,7 +529,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         resp = self.client.get(
-            "/prefix/subproject/en/latest/api/index.html", HTTP_HOST=host
+            "/prefix/subproject/en/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
@@ -491,24 +543,24 @@ class TestCustomPathPrefixes(BaseDocServing):
         self.project.save()
         host = "project.readthedocs.io"
 
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/prefix/en/latest/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Serving works on the main project.
-        resp = self.client.get("/prefix/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # Root redirect for the subproject
-        resp = self.client.get("/prefix/s/subproject", HTTP_HOST=host)
+        resp = self.client.get("/prefix/s/subproject", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"],
@@ -516,7 +568,9 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         # Normal serving
-        resp = self.client.get("/prefix/s/subproject/en/latest/", HTTP_HOST=host)
+        resp = self.client.get(
+            "/prefix/s/subproject/en/latest/", headers={"host": host}
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"],
@@ -524,7 +578,7 @@ class TestCustomPathPrefixes(BaseDocServing):
         )
 
         resp = self.client.get(
-            "/prefix/s/subproject/en/latest/api/index.html", HTTP_HOST=host
+            "/prefix/s/subproject/en/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
@@ -538,30 +592,32 @@ class TestCustomPathPrefixes(BaseDocServing):
         self.project.save()
         host = "project.readthedocs.io"
 
-        resp = self.client.get("/", HTTP_HOST=host)
+        resp = self.client.get("/", headers={"host": host})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
             resp["Location"], "http://project.readthedocs.io/prefix/en/latest/"
         )
 
-        resp = self.client.get("/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         # Serving works on the main project.
-        resp = self.client.get("/prefix/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/en/latest/", headers={"host": host})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp["x-accel-redirect"], "/proxito/media/html/project/latest/index.html"
         )
 
         # We can't access to the subproject.
-        resp = self.client.get("/prefix/es/subproject/", HTTP_HOST=host)
-        self.assertEqual(resp.status_code, 404)
-
-        resp = self.client.get("/prefix/es/subproject/en/latest/", HTTP_HOST=host)
+        resp = self.client.get("/prefix/es/subproject/", headers={"host": host})
         self.assertEqual(resp.status_code, 404)
 
         resp = self.client.get(
-            "/prefix/es/subproject/en/latest/api/index.html", HTTP_HOST=host
+            "/prefix/es/subproject/en/latest/", headers={"host": host}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.get(
+            "/prefix/es/subproject/en/latest/api/index.html", headers={"host": host}
         )
         self.assertEqual(resp.status_code, 404)

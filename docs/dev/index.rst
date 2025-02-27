@@ -25,7 +25,9 @@ or taking the open source Read the Docs codebase for your own custom installatio
    style-guide
    front-end
    i18n
+   migrations
    server-side-search
    search-integration
+   subscriptions
    settings
    tests

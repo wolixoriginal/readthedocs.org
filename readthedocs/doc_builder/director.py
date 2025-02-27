@@ -13,17 +13,18 @@ import tarfile
 import structlog
 import yaml
 from django.conf import settings
-from django.utils.translation import gettext_lazy as _
 
 from readthedocs.builds.constants import EXTERNAL
+from readthedocs.config.config import CONFIG_FILENAME_REGEX
+from readthedocs.config.find import find_one
 from readthedocs.core.utils.filesystem import safe_open
+from readthedocs.core.utils.objects import get_dotted_attribute
 from readthedocs.doc_builder.config import load_yaml_config
 from readthedocs.doc_builder.exceptions import BuildUserError
 from readthedocs.doc_builder.loader import get_builder_class
 from readthedocs.doc_builder.python_environments import Conda, Virtualenv
-from readthedocs.projects.constants import BUILD_COMMANDS_OUTPUT_PATH_HTML
+from readthedocs.projects.constants import BUILD_COMMANDS_OUTPUT_PATH_HTML, GENERIC
 from readthedocs.projects.exceptions import RepositoryError
-from readthedocs.projects.models import Feature
 from readthedocs.projects.signals import after_build, before_build, before_vcs
 from readthedocs.storage import build_tools_storage
 
@@ -59,9 +60,6 @@ class BuildDirector:
         """
         self.data = data
 
-        # Reset `addons` field. It will be set to `True` only when it's built via `build.commands`
-        self.data.version.addons = False
-
     def setup_vcs(self):
         """
         Perform all VCS related steps.
@@ -76,11 +74,7 @@ class BuildDirector:
             os.makedirs(self.data.project.doc_path)
 
         if not self.data.project.vcs_class():
-            raise RepositoryError(
-                _('Repository type "{repo_type}" unknown').format(
-                    repo_type=self.data.project.repo_type,
-                ),
-            )
+            raise RepositoryError(RepositoryError.UNSUPPORTED_VCS)
 
         before_vcs.send(
             sender=self.data.version,
@@ -94,6 +88,8 @@ class BuildDirector:
             environment=self.vcs_environment,
             verbose_name=self.data.version.verbose_name,
             version_type=self.data.version.type,
+            version_identifier=self.data.version.identifier,
+            version_machine=self.data.version.machine,
         )
 
         # We can't do too much on ``pre_checkout`` because we haven't
@@ -106,6 +102,7 @@ class BuildDirector:
         #
         # self.run_build_job("pre_checkout")
         self.checkout()
+
         self.run_build_job("post_checkout")
 
         commit = self.data.build_commit or self.vcs_repository.commit
@@ -118,21 +115,17 @@ class BuildDirector:
             version=self.data.version,
             build=self.data.build,
             environment=self.get_vcs_env_vars(),
-            # Force the ``container_image`` to use one that has the latest
-            # ca-certificate package which is compatible with Lets Encrypt
-            container_image=settings.RTD_DOCKER_BUILD_SETTINGS["os"]["ubuntu-20.04"],
+            container_image=settings.RTD_DOCKER_CLONE_IMAGE,
             api_client=self.data.api_client,
         )
 
     def create_build_environment(self):
-        use_gvisor = self.data.config.using_build_tools and self.data.config.build.jobs
         self.build_environment = self.data.environment_class(
             project=self.data.project,
             version=self.data.version,
             config=self.data.config,
             build=self.data.build,
             environment=self.get_build_env_vars(),
-            use_gvisor=use_gvisor,
             api_client=self.data.api_client,
         )
 
@@ -169,8 +162,7 @@ class BuildDirector:
         self.run_build_job("post_system_dependencies")
 
         # Install all ``build.tools`` specified by the user
-        if self.data.config.using_build_tools:
-            self.install_build_tools()
+        self.install_build_tools()
 
         self.run_build_job("pre_create_environment")
         self.create_environment()
@@ -179,10 +171,6 @@ class BuildDirector:
         self.run_build_job("pre_install")
         self.install()
         self.run_build_job("post_install")
-
-        # TODO: remove this and document how to do it on `build.jobs.post_install`
-        if self.data.project.has_feature(Feature.LIST_PACKAGES_INSTALLED_ENV):
-            self.language_environment.list_packages_installed()
 
     def build(self):
         """
@@ -193,7 +181,6 @@ class BuildDirector:
         3. build PDF
         4. build ePub
         """
-
         self.run_build_job("pre_build")
 
         # Build all formats
@@ -213,7 +200,7 @@ class BuildDirector:
     def checkout(self):
         """Checkout Git repo and load build config file."""
 
-        log.info("Cloning repository.")
+        log.info("Cloning and fetching.")
         self.vcs_repository.update()
 
         identifier = self.data.build_commit or self.data.version.identifier
@@ -233,6 +220,24 @@ class BuildDirector:
 
         if custom_config_file:
             log.info("Using a custom .readthedocs.yaml file.", path=custom_config_file)
+
+        checkout_path = self.data.project.checkout_path(self.data.version.slug)
+        default_config_file = find_one(checkout_path, CONFIG_FILENAME_REGEX)
+        final_config_file = custom_config_file or default_config_file
+
+        # Output the path for the config file used.
+        # This works as confirmation for us & the user about which file is used,
+        # as well as the fact that *any* config file is used.
+        if final_config_file:
+            command = self.vcs_environment.run(
+                "cat",
+                # Show user the relative path to the config file
+                # TODO: Have our standard path replacement code catch this.
+                # https://github.com/readthedocs/readthedocs.org/pull/10413#discussion_r1230765843
+                final_config_file.replace(checkout_path + "/", ""),
+                cwd=checkout_path,
+            )
+
         self.data.config = load_yaml_config(
             version=self.data.version,
             readthedocs_yaml_path=custom_config_file,
@@ -240,8 +245,20 @@ class BuildDirector:
         self.data.build["config"] = self.data.config.as_dict()
         self.data.build["readthedocs_yaml_path"] = custom_config_file
 
-        if self.vcs_repository.supports_submodules:
-            self.vcs_repository.update_submodules(self.data.config)
+        # Raise a build error if the project is not using a config file or using v1
+        if self.data.config.version not in ("2", 2):
+            raise BuildUserError(BuildUserError.NO_CONFIG_FILE_DEPRECATED)
+
+        # Raise a build error if the project is using "build.image" on their config file
+        build_config_key = self.data.config.source_config.get("build", {})
+        if "image" in build_config_key:
+            raise BuildUserError(BuildUserError.BUILD_IMAGE_CONFIG_KEY_DEPRECATED)
+
+        # TODO: move this validation to the Config object once we are settled here
+        if "image" not in build_config_key and "os" not in build_config_key:
+            raise BuildUserError(BuildUserError.BUILD_OS_REQUIRED)
+
+        self.vcs_repository.update_submodules(self.data.config)
 
     # System dependencies (``build.apt_packages``)
     # NOTE: `system_dependencies` should not be possible to override by the
@@ -281,20 +298,45 @@ class BuildDirector:
 
     # Language environment
     def create_environment(self):
+        if self.data.config.build.jobs.create_environment is not None:
+            self.run_build_job("create_environment")
+            return
+
+        # If the builder is generic, we have nothing to do here,
+        # as the commnads are provided by the user.
+        if self.data.config.doctype == GENERIC:
+            return
+
         self.language_environment.setup_base()
 
     # Install
     def install(self):
+        if self.data.config.build.jobs.install is not None:
+            self.run_build_job("install")
+            return
+
+        # If the builder is generic, we have nothing to do here,
+        # as the commnads are provided by the user.
+        if self.data.config.doctype == GENERIC:
+            return
+
         self.language_environment.install_core_requirements()
         self.language_environment.install_requirements()
 
     # Build
     def build_html(self):
+        if self.data.config.build.jobs.build.html is not None:
+            self.run_build_job("build.html")
+            return
         return self.build_docs_class(self.data.config.doctype)
 
     def build_pdf(self):
         if "pdf" not in self.data.config.formats or self.data.version.type == EXTERNAL:
             return False
+
+        if self.data.config.build.jobs.build.pdf is not None:
+            self.run_build_job("build.pdf")
+            return
 
         # Mkdocs has no pdf generation currently.
         if self.is_type_sphinx():
@@ -309,6 +351,10 @@ class BuildDirector:
         ):
             return False
 
+        if self.data.config.build.jobs.build.htmlzip is not None:
+            self.run_build_job("build.htmlzip")
+            return
+
         # We don't generate a zip for mkdocs currently.
         if self.is_type_sphinx():
             return self.build_docs_class("sphinx_singlehtmllocalmedia")
@@ -317,6 +363,10 @@ class BuildDirector:
     def build_epub(self):
         if "epub" not in self.data.config.formats or self.data.version.type == EXTERNAL:
             return False
+
+        if self.data.config.build.jobs.build.epub is not None:
+            self.run_build_job("build.epub")
+            return
 
         # Mkdocs has no epub generation currently.
         if self.is_type_sphinx():
@@ -347,14 +397,17 @@ class BuildDirector:
                 - python path/to/myscript.py
               pre_build:
                 - sed -i **/*.rst -e "s|{version}|v3.5.1|g"
+              build:
+                html:
+                  - make html
+                pdf:
+                  - make pdf
 
         In this case, `self.data.config.build.jobs.pre_build` will contains
         `sed` command.
         """
-        if (
-            getattr(self.data.config.build, "jobs", None) is None
-            or getattr(self.data.config.build.jobs, job, None) is None
-        ):
+        commands = get_dotted_attribute(self.data.config, f"build.jobs.{job}", None)
+        if not commands:
             return
 
         cwd = self.data.project.checkout_path(self.data.version.slug)
@@ -362,7 +415,6 @@ class BuildDirector:
         if job not in ("pre_checkout", "post_checkout"):
             environment = self.build_environment
 
-        commands = getattr(self.data.config.build.jobs, job, [])
         for command in commands:
             environment.run(command, escape_command=False, cwd=cwd)
 
@@ -392,7 +444,8 @@ class BuildDirector:
 
     def run_build_commands(self):
         """Runs each build command in the build environment."""
-        reshim_commands = (
+
+        python_reshim_commands = (
             {"pip", "install"},
             {"conda", "create"},
             {"conda", "install"},
@@ -400,6 +453,8 @@ class BuildDirector:
             {"mamba", "install"},
             {"poetry", "install"},
         )
+        rust_reshim_commands = ({"cargo", "install"},)
+
         cwd = self.data.project.checkout_path(self.data.version.slug)
         environment = self.build_environment
         for command in self.data.config.build.commands:
@@ -408,13 +463,23 @@ class BuildDirector:
             # Execute ``asdf reshim python`` if the user is installing a
             # package since the package may contain an executable
             # See https://github.com/readthedocs/readthedocs.org/pull/9150#discussion_r882849790
-            for reshim_command in reshim_commands:
+            for python_reshim_command in python_reshim_commands:
                 # Convert tuple/list into set to check reshim command is a
                 # subset of the command itself. This is to find ``pip install``
                 # but also ``pip -v install`` and ``python -m pip install``
-                if reshim_command.issubset(command.split()):
+                if python_reshim_command.issubset(command.split()):
                     environment.run(
                         *["asdf", "reshim", "python"],
+                        escape_command=False,
+                        cwd=cwd,
+                        record=False,
+                    )
+
+            # Do same for Rust
+            for rust_reshim_command in rust_reshim_commands:
+                if rust_reshim_command.issubset(command.split()):
+                    environment.run(
+                        *["asdf", "reshim", "rust"],
                         escape_command=False,
                         cwd=cwd,
                         record=False,
@@ -427,9 +492,6 @@ class BuildDirector:
         # Update the `Version.documentation_type` to match the doctype defined
         # by the config file. When using `build.commands` it will be `GENERIC`
         self.data.version.documentation_type = self.data.config.doctype
-
-        # Mark this version to inject the new js client when serving it via El Proxito
-        self.data.version.addons = True
 
         self.store_readthedocs_build_yaml()
 
@@ -466,7 +528,14 @@ class BuildDirector:
             # TODO: generate the correct path for the Python version
             # see https://github.com/readthedocs/readthedocs.org/pull/8447#issuecomment-911562267
             # tool_path = f'{self.config.build.os}/{tool}/2021-08-30/{full_version}.tar.gz'
-            tool_path = f"{self.data.config.build.os}-{tool}-{full_version}.tar.gz"
+
+            build_os = self.data.config.build.os
+            if build_os == "ubuntu-lts-latest":
+                _, build_os = settings.RTD_DOCKER_BUILD_SETTINGS["os"][
+                    "ubuntu-lts-latest"
+                ].split(":")
+
+            tool_path = f"{build_os}-{tool}-{full_version}.tar.gz"
             tool_version_cached = build_tools_storage.exists(tool_path)
             if tool_version_cached:
                 remote_fd = build_tools_storage.open(tool_path, mode="rb")
@@ -584,13 +653,18 @@ class BuildDirector:
         only raise a warning exception here. A hard error will halt the build
         process.
         """
+        # If the builder is generic, we have nothing to do here,
+        # as the commnads are provided by the user.
+        if builder_class == GENERIC:
+            return
+
         builder = get_builder_class(builder_class)(
             build_env=self.build_environment,
             python_env=self.language_environment,
         )
 
         if builder_class == self.data.config.doctype:
-            builder.append_conf()
+            builder.show_conf()
             self.data.version.documentation_type = builder.get_final_doctype()
 
         success = builder.build()
@@ -612,6 +686,9 @@ class BuildDirector:
             "READTHEDOCS_VERSION_NAME": self.data.version.verbose_name,
             "READTHEDOCS_PROJECT": self.data.project.slug,
             "READTHEDOCS_LANGUAGE": self.data.project.language,
+            "READTHEDOCS_REPOSITORY_PATH": self.data.project.checkout_path(
+                self.data.version.slug
+            ),
             "READTHEDOCS_OUTPUT": os.path.join(
                 self.data.project.checkout_path(self.data.version.slug), "_readthedocs/"
             ),
@@ -619,8 +696,9 @@ class BuildDirector:
             # TODO: we don't have access to the database from the builder.
             # We need to find a way to expose HTML_URL here as well.
             # "READTHEDOCS_GIT_HTML_URL": self.data.project.remote_repository.html_url,
-            "READTHEDOCS_GIT_IDENTIFIER": self.data.version.identifier,
+            "READTHEDOCS_GIT_IDENTIFIER": self.data.version.git_identifier,
             "READTHEDOCS_GIT_COMMIT_HASH": self.data.build["commit"],
+            "READTHEDOCS_PRODUCTION_DOMAIN": settings.PRODUCTION_DOMAIN,
         }
         return env
 
@@ -716,3 +794,27 @@ class BuildDirector:
         # It will be saved when the API is hit.
         # This data will be used by the `/_/readthedocs-config.json` API endpoint.
         self.data.version.build_data = data
+
+    def attach_notification(
+        self,
+        message_id,
+        format_values=None,
+        state="unread",
+        dismissable=False,
+        news=False,
+    ):
+        """Attach a notification to build in progress using the APIv2."""
+
+        format_values = format_values or {}
+        # NOTE: we are using APIv2 here because it uses BuildAPIKey authentication,
+        # which is not currently supported by APIv3.
+        self.data.api_client.notifications.post(
+            {
+                "attached_to": f'build/{self.data.build["id"]}',
+                "message_id": message_id,
+                "state": state,  # Optional
+                "dismissable": dismissable,
+                "news": news,
+                "format_values": format_values,
+            }
+        )

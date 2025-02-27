@@ -27,13 +27,18 @@ How-to guides: security and access
     a :ref:`private Git repository <guides/private-python-packages:From a Git repository>` or
     a :ref:`private repository manager <guides/private-python-packages:From a repository manager other than PyPI>`.
 
+⏩️ :doc:`Manage Maintainers </guides/managing-maintainers>`
+    Learn how to manage maintainers for your projects on |org_brand|.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
 
    Single Sign-On (SSO) with GitHub, GitLab, or Bitbucket </guides/setup-single-sign-on-github-gitlab-bitbucket>
    Single Sign-On (SSO) with Google Workspace </guides/setup-single-sign-on-google-email>
+   Single Sign-On (SSO) with SAML </guides/set-up-single-sign-on-saml>
    Managing Read the Docs teams </guides/manage-read-the-docs-teams>
    Manually importing private repositories </guides/importing-private-repositories>
    Using private Git submodules </guides/private-submodules>
    Installing private python packages </guides/private-python-packages>
+   Manage maintainers </guides/managing-maintainers>

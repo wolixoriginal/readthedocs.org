@@ -6,8 +6,6 @@ import redis
 import structlog
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
-from django.utils import timezone
-from messages_extends.models import Message as PersistentMessage
 
 from readthedocs.worker import app
 
@@ -16,7 +14,7 @@ log = structlog.get_logger(__name__)
 EMAIL_TIME_LIMIT = 30
 
 
-@app.task(queue='web', time_limit=EMAIL_TIME_LIMIT)
+@app.task(queue="web", time_limit=EMAIL_TIME_LIMIT)
 def send_email_task(
     recipient, subject, content, content_html=None, from_email=None, **kwargs
 ):
@@ -49,16 +47,6 @@ def send_email_task(
         msg.attach_alternative(content_html, "text/html")
     log.info("Sending email to recipient.", recipient=recipient)
     msg.send()
-
-
-@app.task(queue='web')
-def clear_persistent_messages():
-    # Delete all expired message_extend's messages
-    log.info("Deleting all expired message_extend's messages")
-    expired_messages = PersistentMessage.objects.filter(
-        expires__lt=timezone.now(),
-    )
-    expired_messages.delete()
 
 
 @app.task(queue="web")

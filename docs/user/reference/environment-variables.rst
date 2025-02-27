@@ -1,5 +1,5 @@
-Environment variables
-=====================
+Environment variable reference
+==============================
 
 All :doc:`build processes </builds>` have the following environment variables automatically defined and available for each build step:
 
@@ -9,6 +9,17 @@ All :doc:`build processes </builds>` have the following environment variables au
 
     :Default: ``True``
 
+.. envvar:: READTHEDOCS_PRODUCTION_DOMAIN
+
+    Domain where Read the Docs application/dashboard and API are running.
+
+    :Example: ``readthedocs.org``
+    :Example: ``readthedocs.com``
+    :Example: ``app.readthedocs.org``
+    :Example: ``app.readthedocs.com``
+    :Example: ``devthedocs.org``
+    :Example: ``devthedocs.com``
+
 .. envvar:: READTHEDOCS_PROJECT
 
     The :term:`slug` of the project being built. For example, ``my-example-project``.
@@ -16,13 +27,14 @@ All :doc:`build processes </builds>` have the following environment variables au
 .. envvar:: READTHEDOCS_LANGUAGE
 
     The locale name, or the identifier for the locale, for the project being built.
-    This value comes from the project's configured language.
+    This value comes from the project's configured language code,
+    which is in lowercase and uses a dash as a separator.
 
     :Example: ``en``
     :Example: ``it``
-    :Example: ``de_AT``
+    :Example: ``de-at``
     :Example: ``es``
-    :Example: ``pt_BR``
+    :Example: ``pt-br``
 
 .. envvar:: READTHEDOCS_VERSION
 
@@ -53,10 +65,10 @@ All :doc:`build processes </builds>` have the following environment variables au
 
 .. envvar:: READTHEDOCS_OUTPUT
 
-    Base path for well-known output directories. Files in these directories will automatically be found, uploaded and published.
+    Base path for well-known output directories. Files in these directories will automatically be found, uploaded, and published.
 
     You need to concatenate an output format to this variable.
-    Currently valid formats are ``html``, ``pdf``, ``htmlzip`` and ``epub``.
+    Currently valid formats are ``html``, ``pdf``, ``htmlzip``, and ``epub``.
     (e.g. ``$READTHEDOCS_OUTPUT/html/`` or ``$READTHEDOCS_OUTPUT/pdf/``)
     You also need to create the directory before moving outputs into the destination.
     You can create it with the following command ``mkdir -p $READTHEDOCS_OUTPUT/html/``.
@@ -80,6 +92,12 @@ All :doc:`build processes </builds>` have the following environment variables au
     :Example: ``https://docs.readthedocs.io/ja/stable/``
     :Example: ``https://example--17.org.readthedocs.build/fr/17/``
 
+.. envvar:: READTHEDOCS_REPOSITORY_PATH
+
+    Path where the repository was cloned.
+
+    :Example: ``/home/docs/checkouts/readthedocs.org/user_builds/test-builds/checkouts/latest``
+
 .. envvar:: READTHEDOCS_GIT_CLONE_URL
 
     URL for the remote source repository, from which the documentation is cloned.
@@ -98,6 +116,11 @@ All :doc:`build processes </builds>` have the following environment variables au
     :Example: ``bugfix/docs-typo``
     :Example: ``feature/signup``
     :Example: ``update-readme``
+
+    .. note::
+
+       When building pull requests, this variable contains the numeric ID of the pull request,
+       as we don't have access to the branch name.
 
 .. envvar:: READTHEDOCS_GIT_COMMIT_HASH
 

@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ARG GITHUB_USER
 ARG GITHUB_TOKEN
@@ -22,16 +22,26 @@ RUN apt-get -y install \
         build-essential \
         python3-pip \
         python3-dev \
+        postgresql-client \
         libmysqlclient-dev \
         libfreetype6 \
         libjpeg-dev \
-        postgresql-client \
-        sqlite \
-        netcat \
+        sqlite3 \
+        netcat-traditional \
         telnet \
         lsb-release \
         npm \
         rclone
+
+# Dependencies for django-allauth SAML support.
+# See:
+# - https://github.com/SAML-Toolkits/python3-saml#installation
+# - https://github.com/xmlsec/python-xmlsec#linux-debian
+RUN apt-get -y install \
+      pkg-config \
+      libxml2-dev \
+      libxmlsec1-dev \
+      libxmlsec1-openssl
 
 # Gets the MinIO mc client used to add buckets upon initialization
 # If this client should have issues running inside this image, it is also
@@ -46,25 +56,31 @@ RUN npm install -g nodemon
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && \
     locale-gen
 
-RUN pip3 install --no-cache-dir --upgrade pip
+# Install ``uv`` package manager
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin/:$PATH"
+RUN uv venv
 
 # Ensure that ``python`` is in the PATH so that ``./manage.py`` works
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR /tmp
 
-COPY requirements/pip.txt pip.txt
 COPY requirements/docker.txt docker.txt
-RUN pip3 install --no-cache-dir -r docker.txt
+RUN uv pip sync docker.txt
 
 # Install readthedocs-ext only if GITHUB_TOKEN is provided
 WORKDIR /usr/src/app/checkouts/
 RUN if [ -n "$GITHUB_TOKEN" ] ; \
         then \
         git clone --depth 1 https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/readthedocs/readthedocs-ext ; \
-        pip3 install --no-cache-dir -e readthedocs-ext ; \
-        git clone --depth 1 https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/readthedocs/ext-theme ; \
-        pip3 install --no-cache-dir -e ext-theme ; \
+        uv pip install --no-cache-dir -e readthedocs-ext ; \
         fi
+
+RUN git clone --depth 1 https://github.com/readthedocs/ext-theme ; \
+    uv pip install --no-cache-dir -e ext-theme
+
+# Required by polymorphic
+RUN uv pip install --no-cache-dir -U setuptools
 
 WORKDIR /usr/src/app/checkouts/readthedocs.org

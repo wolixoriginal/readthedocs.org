@@ -10,23 +10,26 @@ from readthedocs.core.unresolver import (
     InvalidExternalDomainError,
     InvalidExternalVersionError,
     InvalidPathForVersionedProjectError,
+    InvalidSchemeError,
+    InvalidSubdomainError,
     SuspiciousHostnameError,
     TranslationNotFoundError,
     TranslationWithoutVersionError,
     VersionNotFoundError,
     unresolve,
+    unresolver,
 )
+from readthedocs.projects.constants import SINGLE_VERSION_WITHOUT_TRANSLATIONS
 from readthedocs.projects.models import Domain
 from readthedocs.rtd_tests.tests.test_resolver import ResolverBase
 
 
 @override_settings(
-    PUBLIC_DOMAIN='readthedocs.io',
-    RTD_EXTERNAL_VERSION_DOMAIN='dev.readthedocs.build',
+    PUBLIC_DOMAIN="readthedocs.io",
+    RTD_EXTERNAL_VERSION_DOMAIN="dev.readthedocs.build",
 )
 @pytest.mark.proxito
 class UnResolverTests(ResolverBase):
-
     def test_unresolver(self):
         parts = unresolve(
             "https://pip.readthedocs.io/en/latest/foo.html?search=api#fragment"
@@ -146,7 +149,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/foo.html")
 
     def test_unresolve_subproject_single_version(self):
-        self.subproject.single_version = True
+        self.subproject.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.subproject.save()
         parts = unresolve("https://pip.readthedocs.io/projects/sub/foo.html")
         self.assertEqual(parts.parent_project, self.pip)
@@ -200,7 +203,7 @@ class UnResolverTests(ResolverBase):
     def test_unresolver_custom_domain(self):
         self.domain = fixture.get(
             Domain,
-            domain='docs.foobar.com',
+            domain="docs.foobar.com",
             project=self.pip,
             canonical=True,
         )
@@ -211,7 +214,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/index.html")
 
     def test_unresolve_single_version(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
         parts = unresolve("https://pip.readthedocs.io/")
         self.assertEqual(parts.parent_project, self.pip)
@@ -220,7 +223,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/index.html")
 
     def test_unresolve_single_version_translation_like_path(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
         parts = unresolve("https://pip.readthedocs.io/en/latest/index.html")
         self.assertEqual(parts.parent_project, self.pip)
@@ -229,7 +232,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/en/latest/index.html")
 
     def test_unresolve_single_version_subproject_like_path(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
         parts = unresolve(
             "https://pip.readthedocs.io/projects/other/en/latest/index.html"
@@ -240,7 +243,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/projects/other/en/latest/index.html")
 
     def test_unresolve_single_version_subproject(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
         parts = unresolve(
             "https://pip.readthedocs.io/projects/sub/ja/latest/index.html"
@@ -265,7 +268,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/index.html")
 
     def test_external_version_single_version_project(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
         version = get(
             Version,
@@ -281,7 +284,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.filename, "/index.html")
 
     def test_unexisting_external_version_single_version_project(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
         with pytest.raises(VersionNotFoundError) as excinfo:
             unresolve("https://pip--10.dev.readthedocs.build/")
@@ -292,7 +295,7 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(exc.filename, "/")
 
     def test_non_external_version_single_version_project(self):
-        self.pip.single_version = True
+        self.pip.versioning_scheme = SINGLE_VERSION_WITHOUT_TRANSLATIONS
         self.pip.save()
 
         with pytest.raises(VersionNotFoundError) as excinfo:
@@ -365,3 +368,40 @@ class UnResolverTests(ResolverBase):
         self.assertEqual(parts.project, self.pip)
         self.assertEqual(parts.version, external_version)
         self.assertEqual(parts.filename, "/index.html")
+
+    def test_unresolve_invalid_scheme(self):
+        invalid_urls = [
+            "fttp://pip.readthedocs.io/en/latest/",
+            "fttps://pip.readthedocs.io/en/latest/",
+            "ssh://pip.readthedocs.io/en/latest/",
+            "javascript://pip.readthedocs.io/en/latest/",
+            "://pip.readthedocs.io/en/latest/",
+        ]
+        for url in invalid_urls:
+            with pytest.raises(InvalidSchemeError):
+                unresolve(url)
+
+        # A triple slash is interpreted as a URL without domain,
+        # we don't support that.
+        with pytest.raises(InvalidSubdomainError):
+            unresolve("https:///pip.readthedocs.io/en/latest/")
+
+    def test_unresolve_domain_with_full_url(self):
+        result = unresolver.unresolve_domain("https://pip.readthedocs.io/en/latest/")
+        self.assertIsNone(result.domain)
+        self.assertEqual(result.project, self.pip)
+        self.assertTrue(result.is_from_public_domain)
+        self.assertEqual(result.source_domain, "pip.readthedocs.io")
+
+    def test_unresolve_domain_with_full_url_invalid_protocol(self):
+        invalid_protocols = [
+            "fttp",
+            "fttps",
+            "ssh",
+            "javascript",
+        ]
+        for protocol in invalid_protocols:
+            with pytest.raises(InvalidSchemeError):
+                unresolver.unresolve_domain(
+                    f"{protocol}://pip.readthedocs.io/en/latest/"
+                )

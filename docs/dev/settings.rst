@@ -19,34 +19,10 @@ memory
     Examples: '200m' for 200MB of total memory, or '2g' for 2GB of
     total memory.
 
-SLUMBER_USERNAME
-----------------
-
-.. Don't set this automatically, lest we leak something. We are using the dev
-   settings in the conf.py, but it's probably a good idea to be safe.
-
-The username to use when connecting to the Read the Docs API. Used for hitting the API while building the docs.
-
-SLUMBER_PASSWORD
-----------------
-
-.. Don't set this automatically, lest we leak something. We are using the dev
-   settings in the conf.py, but it's probably a good idea to be safe.
-
-The password to use when connecting to the Read the Docs API. Used for hitting the API while building the docs.
-
-USE_SUBDOMAIN
----------------
-
-Whether to use subdomains in URLs on the site, or the Django-served content.
-When used in production, this should be ``True``, as Nginx will serve this content.
-During development and other possible deployments, this might be ``False``.
-
 PRODUCTION_DOMAIN
 ------------------
 
-This is the domain that gets linked to throughout the site when used in production.
-It depends on `USE_SUBDOMAIN`, otherwise it isn't used.
+This is the domain that is used by the main application dashboard (not documentation pages).
 
 RTD_INTERSPHINX_URL
 -------------------
@@ -58,11 +34,6 @@ DEFAULT_PRIVACY_LEVEL
 ---------------------
 
 What privacy projects default to having. Generally set to `public`. Also acts as a proxy setting for blocking certain historically insecure options, like serving generated artifacts directly from the media server.
-
-INDEX_ONLY_LATEST
------------------
-
-In search, only index the `latest` version of a Project.
 
 PUBLIC_DOMAIN
 -------------
@@ -91,6 +62,11 @@ RTD_BUILD_MEDIA_STORAGE
 Use this storage class to upload build artifacts to cloud storage (S3, Azure storage).
 This should be a dotted path to the relevant class (eg. ``'path.to.MyBuildMediaStorage'``).
 Your class should mixin :class:`readthedocs.builds.storage.BuildMediaStorageMixin`.
+
+RTD_FILETREEDIFF_ALL
+--------------------
+
+Set to ``True`` to enable the file tree diff feature for all projects.
 
 
 ELASTICSEARCH_DSL
@@ -159,5 +135,50 @@ ELASTICSEARCH_DSL_AUTOSYNC
 
 This setting is used for automatically indexing objects to elasticsearch.
 
-
 .. _elasticsearch-dsl-py.connections.configure: https://elasticsearch-dsl.readthedocs.io/en/stable/configuration.html#multiple-clusters
+
+
+Docker pass-through settings
+----------------------------
+
+If you run a Docker environment, it is possible to pass some secrets through to
+the Docker containers from your host system. For security reasons, we do not
+commit these secrets to our repository. Instead, we individually define these
+settings for our local environments.
+
+We recommend using `direnv`_ for storing local development secrets.
+
+.. _direnv: https://direnv.net/
+
+Allauth secrets
+~~~~~~~~~~~~~~~
+
+It is possible to set the Allauth application secrets for our supported
+providers using the following environment variables:
+
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GITHUB_CLIENT_ID
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GITHUB_SECRET
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GITHUBAPP_CLIENT_ID
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GITHUBAPP_SECRET
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GITLAB_CLIENT_ID
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GITLAB_SECRET
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_BITBUCKET_OAUTH2_CLIENT_ID
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_BITBUCKET_OAUTH2_SECRET
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GOOGLE_CLIENT_ID
+.. envvar:: RTD_SOCIALACCOUNT_PROVIDERS_GOOGLE_SECRET
+
+Stripe secrets
+~~~~~~~~~~~~~~
+
+The following secrets are required to use ``djstripe`` and our Stripe integration.
+
+.. envvar:: RTD_STRIPE_SECRET
+.. envvar:: RTD_STRIPE_PUBLISHABLE
+.. envvar:: RTD_DJSTRIPE_WEBHOOK_SECRET
+
+Ethical Ads variables
+~~~~~~~~~~~~~~~~~~~~~
+
+The following variables are required to use ``ethicalads`` in dev:
+
+.. envvar:: RTD_USE_PROMOS
